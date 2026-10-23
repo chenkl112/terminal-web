@@ -1,0 +1,61 @@
+import { test, expect } from '@playwright/test';
+import express from 'express';
+import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+test('new task drafts stay out of history until a turn starts and usage dashboard renders ZCode-style stats', async ({ page }) => {
+  const workspace = { id: 'project', name: 'Project', path: '/tmp/project' };
+  const conversation = { id: 'existing-chat', threadId: 'existing-thread', workspaceId: workspace.id, cwd: workspace.path, title: '已有任务', status: 'idle', turns: [], attachments: {}, usage: null, model: 'gpt-6.1-sol', effort: 'medium', permissionMode: 'workspace-write', fast: false, mode: 'default' };
+  const conversations = [conversation], creationCalls = [], taskCalls = [];
+  let releaseTask;
+  const taskGate = new Promise(resolve => { releaseTask = resolve; });
+  const activity = Array.from({ length: 365 }, (_, index) => ({ date: new Date(Date.now() - (364 - index) * 86400000).toISOString().slice(0, 10), tokens: index === 364 ? 2515000 : 0 }));
+  const stats = { generatedAt: Date.now(), totalTokens: 29200000, peakDay: activity.at(-1), longestConversationMs: 32 * 60000, currentStreak: 1, longestStreak: 1, completedTurns: 8, conversationCount: 3, activity, models: [{ model: 'gpt-6.1-sol', tokens: 29200000 }], latestActivity: Date.now() };
+  const state = () => ({ type: 'snapshot', codexStatus: 'ready', models: [{ model: 'gpt-6.1-sol', displayName: 'GPT 6.1 Sol', isDefault: true, defaultReasoningEffort: 'medium', supportedReasoningEfforts: [{ reasoningEffort: 'medium' }], serviceTiers: [{ id: 'priority' }] }], workspaces: [workspace], defaultWorkspaceId: workspace.id, conversations: [...conversations], terminals: [], approvals: [] });
+  const app = express(); app.use(express.json()); app.get('/api/auth', (_, res) => res.json({ authenticated: true }));
+  app.post('/api/conversations', (req, res) => { creationCalls.push(req.body); res.status(201).json({}); });
+  app.post('/api/tasks', async (req, res) => {
+    taskCalls.push(req.body); await taskGate;
+    if (req.body.text === 'fail this task') return res.status(400).json({ error: '模拟任务启动失败' });
+    const created = { id: `task-${conversations.length}`, threadId: `thread-${conversations.length}`, workspaceId: workspace.id, cwd: workspace.path, title: req.body.text, status: 'active', activeTurnId: 'turn', turns: [{ id: 'turn', status: 'inProgress', items: [{ id: 'command', type: 'commandExecution', command: 'npm test', status: 'inProgress' }] }], attachments: { client: { text: req.body.text, files: [] } }, usage: null, model: req.body.model, effort: req.body.effort, permissionMode: req.body.permissionMode, fast: req.body.fast, mode: req.body.mode };
+    conversations.unshift(created); return res.status(201).json({ conversation: created, turnId: 'turn' });
+  });
+  app.get('/api/usage-stats', (_, res) => res.json(stats)); app.use(express.static(process.env.TASK_USAGE_TEST_DIST || 'dist'));
+  const server = createServer(app), wss = new WebSocketServer({ server, path: '/ws' }); wss.on('connection', socket => socket.send(JSON.stringify(state())));
+  server.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}`);
+    const input = page.getByRole('textbox', { name: '发送给 Codex' });
+    const newTask = page.getByRole('button', { name: '新建任务', exact: true }); await expect(newTask).toBeVisible(); await newTask.click();
+    await expect(page.locator('.header-title')).toHaveText('新建任务'); await expect(input).toHaveValue('');
+    await expect(page.locator('.conversation-row')).toHaveCount(1); expect(conversations).toHaveLength(1); expect(creationCalls).toHaveLength(0); expect(taskCalls).toHaveLength(0);
+    await page.keyboard.press('Control+n'); await expect(page.locator('.header-title')).toHaveText('新建任务');
+    expect(conversations).toHaveLength(1); expect(creationCalls).toHaveLength(0); expect(taskCalls).toHaveLength(0);
+    await input.fill('fail this task'); await input.press('Enter'); await expect.poll(() => taskCalls.length).toBe(1); expect(conversations).toHaveLength(1);
+    const workStatus = page.getByRole('status').filter({ hasText: '正在启动任务' });
+    await expect(workStatus).toBeVisible();
+    await expect(page.locator('.sidebar .sidebar-bottom')).not.toContainText('正在启动任务');
+    expect(await workStatus.evaluate(element => element.parentElement.classList.contains('composer-section'))).toBeTruthy();
+    releaseTask();
+    await expect(page.getByRole('alert')).toContainText('模拟任务启动失败'); await expect(workStatus).toHaveCount(0); await expect(page.locator('.conversation-row')).toHaveCount(1); await expect(input).toHaveValue('fail this task');
+    await input.fill('实现导出功能'); await input.press('Enter'); await expect.poll(() => taskCalls.length).toBe(2); await expect.poll(() => conversations.length).toBe(2);
+    await expect.poll(() => page.locator('.conversation-row').count()).toBe(2); await expect(input).toHaveValue('');
+    await expect(page.getByRole('status')).toContainText('正在运行命令'); await expect(page.getByRole('status')).toContainText('npm test');
+    expect(creationCalls).toHaveLength(0); expect(taskCalls[1]).toMatchObject({ text: '实现导出功能', workspaceId: workspace.id, model: 'gpt-6.1-sol', effort: 'medium' });
+    await page.getByRole('button', { name: '使用统计', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '使用统计', exact: true }); await expect(dialog).toBeVisible();
+    await expect(dialog.locator('.usage-stat-summary-row')).toContainText('2920 万');
+    await expect(dialog.locator('.usage-stat-summary-row')).toContainText('32 分钟');
+    await expect(dialog.locator('.usage-trend-panel')).toContainText('每日 Token 趋势');
+    await expect(dialog.locator('.usage-model-panel')).toContainText('gpt-6.1-sol');
+    const grid = dialog.getByRole('list', { name: 'Token 活动日历' }); await expect(grid.locator('[role=listitem]')).toHaveCount(365);
+    await dialog.getByRole('button', { name: '每周', exact: true }).click(); await expect(grid.locator('[role=listitem]')).toHaveCount(53);
+    await dialog.getByRole('button', { name: '累计', exact: true }).click(); await expect(grid.locator('[role=listitem]')).toHaveCount(13);
+    expect(await grid.evaluate(element => getComputedStyle(element).gridTemplateRows.trim().split(/\s+/).length)).toBe(1);
+    await page.screenshot({ path: '.data/usage-stats-zcode-desktop.png' });
+    await page.setViewportSize({ width: 390, height: 844 }); const bounds = await dialog.boundingBox(); expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+    await page.screenshot({ path: '.data/usage-stats-zcode-mobile.png' }); await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0);
+  } finally { releaseTask(); await page.goto('about:blank'); wss.close(); server.closeAllConnections(); server.close(); }
+});

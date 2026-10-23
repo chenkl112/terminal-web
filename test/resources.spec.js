@@ -1,0 +1,57 @@
+import { test, expect } from '@playwright/test';
+import express from 'express';
+import { createServer } from 'node:http';
+import { WebSocketServer } from 'ws';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { createResourceMonitor } from '../server/resources.js';
+
+test('resource manager shows real measurements, switches four tabs, filters requests and stops when closed', async ({ page }) => {
+  const base = await fs.mkdtemp(path.join(os.tmpdir(), 'mono-resource-ui-')), root = path.join(base, 'app'), dataDir = path.join(root, '.data'), codexHome = path.join(base, 'codex');
+  await fs.mkdir(path.join(dataDir, 'uploads'), { recursive: true }); await fs.mkdir(path.join(codexHome, 'sessions'), { recursive: true });
+  await fs.writeFile(path.join(dataDir, 'uploads', 'fixture.bin'), Buffer.alloc(8192)); await fs.writeFile(path.join(codexHome, 'sessions', 'history.jsonl'), 'history');
+  const monitor = createResourceMonitor({ root, dataDir, codexHome }), app = express(); let metricsRequests = 0, recalculations = 0, closedSessions = 0;
+  app.use(express.json()); app.get('/api/auth', (_, res) => res.json({ authenticated: true }));
+  app.use('/api', monitor.observeRequests);
+  app.use('/api/resources', (req, res, next) => { if (req.path === '/metrics') metricsRequests++; if (req.path === '/storage/recalculate') recalculations++; if (req.method === 'DELETE' && req.path.startsWith('/sessions/')) closedSessions++; next(); }, monitor.router);
+  app.all('/api/ping', (_, res) => res.json({ ok: true })); app.use(express.static(process.env.RESOURCE_TEST_DIST || 'dist'));
+  const state = { type: 'snapshot', codexStatus: 'ready', models: [], workspaces: [{ id: 'project', name: 'Project', path: root }], defaultWorkspaceId: 'project', conversations: [], terminals: [{ id: 'shared', isDefault: true, workspaceId: 'project', title: '终端', replay: 'Codex terminal\r\n' }], approvals: [] };
+  const server = createServer(app), wss = new WebSocketServer({ server, path: '/ws' }); wss.on('connection', socket => socket.send(JSON.stringify(state)));
+  server.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
+  const errors = []; page.on('pageerror', error => errors.push(error.message));
+  try {
+    await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await expect(page.locator('.main-panel')).toHaveCSS('background-color', 'rgb(22, 22, 22)'); await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(43, 43, 43)');
+    expect(metricsRequests).toBe(0); await page.getByRole('button', { name: '资源管理器', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: '资源管理器', exact: true }); await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('tab', { name: 'CPU', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await expect(dialog.locator('.resource-big-number')).toContainText('%', { timeout: 10000 }); await expect(dialog.getByText('基础服务', { exact: true })).toBeVisible();
+    await dialog.getByRole('tab', { name: '内存', exact: true }).click(); await expect(dialog.locator('.resource-big-number')).toContainText(/MB|GB|KB/); await expect(dialog).toContainText('RSS');
+    await dialog.getByRole('tab', { name: '存储', exact: true }).click(); await expect(dialog.getByText('上传文件', { exact: true })).toBeVisible();
+    await expect(dialog.locator('.resource-storage-heading>div>strong')).not.toHaveText('—');
+    await dialog.getByRole('button', { name: '重新计算', exact: true }).click(); await expect.poll(() => recalculations).toBe(1); await expect(dialog.getByRole('button', { name: '重新计算', exact: true })).toBeEnabled();
+    await page.screenshot({ path: '.data/resources-storage-desktop.png' });
+    await dialog.getByRole('tab', { name: '网络', exact: true }).click();
+    await page.evaluate(async () => { await fetch('/api/ping?token=SECRET_SHOULD_NOT_APPEAR', { method: 'POST' }); await Promise.all(Array.from({ length: 52 }, () => fetch('/api/ping'))); });
+    await expect(dialog.locator('.resource-network-pagination b')).toHaveText('1 / 2', { timeout: 10000 });
+    expect(await dialog.textContent()).not.toContain('SECRET_SHOULD_NOT_APPEAR');
+    await dialog.getByRole('button', { name: '下一页', exact: true }).click(); await expect(dialog.locator('.resource-network-pagination b')).toHaveText('2 / 2');
+    const search = dialog.getByRole('textbox', { name: '筛选网络请求', exact: true }); await search.fill('POST'); await expect(dialog.locator('.resource-network-table tbody tr')).toHaveCount(1);
+    await search.fill('NO_MATCH_RESOURCE_REQUEST'); await expect(dialog.getByText('没有匹配的网络请求', { exact: true })).toBeVisible(); await search.fill('');
+    await page.screenshot({ path: '.data/resources-network-desktop.png' });
+    await dialog.getByRole('button', { name: '清空', exact: true }).click(); await expect(dialog.getByText('暂无请求，网页有操作时会在这里显示', { exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect.poll(async () => (await dialog.boundingBox()).width).toBeLessThanOrEqual(390);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
+    await dialog.getByRole('tab', { name: 'CPU', exact: true }).focus(); await page.keyboard.press('ArrowRight'); await expect(dialog.getByRole('tab', { name: '内存', exact: true })).toHaveAttribute('aria-selected', 'true');
+    await page.screenshot({ path: '.data/resources-memory-mobile.png' });
+    await page.evaluate(() => { window.__resourceViewportHeight = Object.getOwnPropertyDescriptor(window.visualViewport, 'height'); Object.defineProperty(window.visualViewport, 'height', { configurable: true, value: 400 }); window.visualViewport.dispatchEvent(new Event('resize')); });
+    await expect.poll(async () => (await dialog.boundingBox()).y + (await dialog.boundingBox()).height).toBeLessThanOrEqual(401);
+    await page.evaluate(() => { if (window.__resourceViewportHeight) Object.defineProperty(window.visualViewport, 'height', window.__resourceViewportHeight); else delete window.visualViewport.height; window.visualViewport.dispatchEvent(new Event('resize')); });
+    await page.setViewportSize({ width: 320, height: 400 }); await expect.poll(async () => Math.round((await dialog.boundingBox()).height)).toBeLessThanOrEqual(400);
+    const bounds = await dialog.boundingBox(); expect(bounds.y).toBeGreaterThanOrEqual(0); expect(bounds.y + bounds.height).toBeLessThanOrEqual(401);
+    await page.keyboard.press('Escape'); await expect(dialog).toHaveCount(0); await expect.poll(() => closedSessions).toBe(1);
+    const before = metricsRequests; await page.waitForTimeout(2300); expect(metricsRequests).toBe(before); expect(errors).toEqual([]);
+  } finally { await page.goto('about:blank'); wss.close(); server.closeAllConnections(); server.close(); await fs.rm(base, { recursive: true, force: true }); }
+});
