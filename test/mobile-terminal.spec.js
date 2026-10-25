@@ -16,6 +16,7 @@ test('phone terminal keyboard sends real key sequences, handles Chinese text and
   server.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
   try {
     await page.goto(`http://127.0.0.1:${server.address().port}`);
+    await page.getByRole('tab', { name: '终端', exact: true }).tap();
     const keyboard = page.getByRole('group', { name: '终端输入键盘', exact: true }); await expect(keyboard).toBeHidden();
     await page.getByRole('button', { name: '显示终端键盘', exact: true }).tap(); await expect(keyboard).toBeVisible();
     await expect(page.locator('.terminal-view.visible .xterm-rows')).toContainText('Mobile terminal 中文');

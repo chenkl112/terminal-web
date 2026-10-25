@@ -1,0 +1,25 @@
+.terminal-screen{position:relative;display:flex;flex:1;min-width:0;min-height:0;overflow:hidden}
+.terminal-screen>.terminal-container{width:100%}
+.terminal-loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;gap:9px;background:#161616;color:#aaa;font-size:12px;z-index:2}
+@media(max-width:900px),(pointer:coarse){
+  .app-shell.terminal-active .main-panel{min-height:0;overflow:hidden}
+  .app-shell.terminal-active .topbar{height:42px;min-height:42px;padding-left:max(10px,env(safe-area-inset-left));padding-right:max(10px,env(safe-area-inset-right))}
+  .app-shell.terminal-active .tabbar{height:39px;min-height:39px;padding-left:max(8px,env(safe-area-inset-left));padding-right:max(8px,env(safe-area-inset-right))}
+  .terminal-view{padding:0 max(6px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(6px,env(safe-area-inset-left));min-width:0;overflow:hidden}
+  .terminal-caption{height:40px;min-height:40px;gap:6px}
+  .terminal-caption>span:first-child{min-width:0;max-width:72px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  .terminal-copy-tools{min-width:0;gap:5px}
+  .terminal-copy-tools>.terminal-copy-hint,.terminal-copy-tools>span:last-child{display:none}
+  .terminal-copy-tools>button{height:32px;min-width:42px;padding:0 7px;gap:4px;white-space:nowrap}
+  .terminal-keyboard-host{max-height:55%;overflow:auto;overscroll-behavior:contain}
+  .terminal-upload-panel{max-height:30%;overflow:auto;overscroll-behavior:contain}
+  .terminal-keyboard{margin-top:4px;padding-bottom:8px}
+}
+@media(max-width:900px) and (max-height:500px),(pointer:coarse) and (max-height:500px){
+  .app-shell.terminal-active .topbar{display:none}
+  .terminal-caption{height:34px;min-height:34px}
+  .terminal-keyboard-host{max-height:60%}
+  .terminal-keyboard-heading{margin-bottom:3px}
+  .terminal-key-row>button{min-height:34px}
+  .terminal-keyboard-note{display:none}
+}

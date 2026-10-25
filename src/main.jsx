@@ -8,6 +8,8 @@ import { Archive, ArchiveRestore, ArrowUp, Check, CheckCheck, ChevronDown, Chevr
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { bindTerminalCopyKeys, copyTerminalSelection } from './terminalClipboard.js';
+import { writeTerminalOutput } from './terminalOutput.js';
+import { bindTerminalScrolling } from './terminalScroll.js';
 import TerminalKeyboard from './TerminalKeyboard.jsx';
 import { usageMetrics } from '../shared/conversation.js';
 import { validateSettings } from '../shared/settings.js';
@@ -37,6 +39,7 @@ import './zcodeTheme.css';
 import './usageStats.css';
 import './taskUsage.css';
 import './workStatus.css';
+import './mobileTerminal.css';
 
 const terminalBus = new EventTarget();
 const terminalBuffers = new Map();
@@ -261,6 +264,12 @@ function TerminalView({ terminal, active, connected, socketRef, onRestart, files
   const container = useRef(null);
   const termRef = useRef(null);
   const fitRef = useRef(null);
+  const activeRef = useRef(active); activeRef.current = active;
+  const terminalInfoRef = useRef(terminal); terminalInfoRef.current = terminal;
+  const scheduleFitRef = useRef(null);
+  const [initialized, setInitialized] = useState(active);
+  const [ready, setReady] = useState(false);
+  useEffect(() => { if (active) setInitialized(true); }, [active]);
   const [hasSelection, setHasSelection] = useState(false);
   const [copyStatus, setCopyStatus] = useState('');
   const [keyboardOpen, setKeyboardOpen] = useState(false);
@@ -272,7 +281,7 @@ function TerminalView({ terminal, active, connected, socketRef, onRestart, files
   useEffect(() => { if (!keyboardOpen) setFilesExpanded(true); setUploadStatus(''); }, [files.length]);
   useEffect(() => { if (!active) setUploadMenu(null); }, [active]);
   function insertPaths(selected) {
-    if (!connected || terminal.exited || !termRef.current) return;
+    if (!ready || !connected || terminal.exited || !termRef.current) return;
     const text = terminalFilePaths(selected.filter(file => file.status === 'done'));
     if (!text) return;
     termRef.current.paste(text); termRef.current.scrollToBottom();
@@ -284,32 +293,58 @@ function TerminalView({ terminal, active, connected, socketRef, onRestart, files
     catch { setCopyStatus('复制失败，请使用右键菜单复制'); }
   }
   useEffect(() => {
-    const term = new Terminal({ cursorBlink: true, macOptionClickForcesSelection: true, fontSize: 14, fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace', lineHeight: 1.35,
+    if (!initialized) return;
+    let disposed = false, frame = 0, replayVersion = 0, replaying = true;
+    const term = new Terminal({ cols: terminal.cols || 100, rows: terminal.rows || 30,
+      cursorBlink: true, macOptionClickForcesSelection: true, fontSize: window.matchMedia('(pointer: coarse)').matches ? 13 : 14, fontFamily: '"SFMono-Regular", Consolas, "Liberation Mono", monospace', lineHeight: 1.35,
       scrollback: 10000, theme: { background: '#161616', foreground: '#dedede', cursor: '#eeeeee', selectionBackground: '#ffffff30', black: '#333333', brightBlack: '#777777', white: '#dedede', brightWhite: '#ffffff' } });
     const fit = new FitAddon(); term.loadAddon(fit); term.open(container.current); termRef.current = term; fitRef.current = fit;
     bindTerminalCopyKeys(term, copySelection);
+    const unbindScroll = bindTerminalScrolling(term, { isCodex: () => terminalInfoRef.current.isDefault && !terminalInfoRef.current.exited });
     const selection = term.onSelectionChange(() => { setHasSelection(term.hasSelection()); setCopyStatus(''); });
-    term.write(terminalBuffers.get(terminal.id) || '');
-    const onData = term.onData(data => { if (socketRef.current?.readyState === WebSocket.OPEN) for (const chunk of terminalInputChunks(data)) socketRef.current.send(JSON.stringify({ type: 'terminal/input', id: terminal.id, data: chunk })); });
-    const onResize = term.onResize(({ cols, rows }) => { if (socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: 'terminal/resize', id: terminal.id, cols, rows })); });
+    const onData = term.onData(data => { if (activeRef.current && !replaying && socketRef.current?.readyState === WebSocket.OPEN) for (const chunk of terminalInputChunks(data)) socketRef.current.send(JSON.stringify({ type: 'terminal/input', id: terminal.id, data: chunk })); });
+    const onResize = term.onResize(({ cols, rows }) => { if (activeRef.current && !replaying && socketRef.current?.readyState === WebSocket.OPEN) socketRef.current.send(JSON.stringify({ type: 'terminal/resize', id: terminal.id, cols, rows })); });
+    function scheduleFit() {
+      if (frame || disposed || replaying || !activeRef.current) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        if (!disposed && activeRef.current && container.current?.clientWidth && container.current?.clientHeight) fit.fit();
+      });
+    }
+    scheduleFitRef.current = scheduleFit;
+    function replay() {
+      const version = ++replayVersion;
+      replaying = true; setReady(false);
+      // Reset after earlier queued writes; keep replay and live output in order.
+      term.write('', () => { if (!disposed) term.reset(); });
+      writeTerminalOutput(term, terminalBuffers.get(terminal.id) || '', () => {
+        if (disposed || version !== replayVersion) return;
+        replaying = false; setReady(true); scheduleFit();
+      });
+    }
+    replay();
     function update(event) {
       if (event.detail.id !== terminal.id) return;
-      if (event.detail.reset) { term.reset(); term.write(terminalBuffers.get(terminal.id) || ''); }
-      else term.write(event.detail.data);
+      if (event.detail.reset) replay();
+      else writeTerminalOutput(term, event.detail.data);
     }
     terminalBus.addEventListener('output', update);
-    const observer = new ResizeObserver(() => { if (container.current?.clientWidth && container.current?.clientHeight) fit.fit(); });
+    const observer = new ResizeObserver(scheduleFit);
     observer.observe(container.current);
-    return () => { observer.disconnect(); terminalBus.removeEventListener('output', update); selection.dispose(); onData.dispose(); onResize.dispose(); term.dispose(); };
-  }, [terminal.id]);
-  useEffect(() => { if (active) requestAnimationFrame(() => { fitRef.current?.fit(); if (!window.matchMedia('(pointer: coarse)').matches) termRef.current?.focus(); }); }, [active]);
-  return <section className={`terminal-view ${active ? 'visible' : ''}`} aria-label={terminalLabel(terminal.title)} onPasteCapture={event => { if (event.clipboardData.files.length) { event.preventDefault(); event.stopPropagation(); onUpload(event.clipboardData.files); } }}><div className="terminal-caption"><span><TerminalSquare size={14} />{terminalLabel(terminal.title)}</span><div className="terminal-copy-tools"><span className="terminal-copy-hint">{/Mac/.test(navigator.platform) ? 'Option + 拖动选择 · ⌘C 复制' : 'Shift + 拖动选择 · Ctrl + Shift + C 复制'}</span><span role="status">{copyStatus}</span><button type="button" className="terminal-upload-toggle" aria-label="终端上传附件" aria-haspopup="menu" aria-expanded={!!uploadMenu} disabled={!connected} onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); setUploadMenu(uploadMenu ? null : { left: Math.max(8, Math.min(bounds.left, window.innerWidth - 202)), top: bounds.bottom + 6 }); }}><Paperclip size={14} />上传</button><button type="button" aria-label="复制选中内容" disabled={!hasSelection} onMouseDown={event => event.preventDefault()} onClick={copySelection}><Copy size={13} />复制</button><button type="button" className="terminal-keyboard-toggle" aria-label={keyboardOpen ? '收起终端键盘' : '显示终端键盘'} aria-expanded={keyboardOpen} onPointerDown={event => event.preventDefault()} onClick={() => setKeyboardOpen(value => !value)}><Keyboard size={14} />按键</button><span>{terminal.exited ? `已退出 · ${terminal.exitCode}` : terminal.isDefault ? 'Codex CLI' : '本机 Shell'}</span></div></div>{uploadMenu && <><div className="menu-dismiss" onClick={() => setUploadMenu(null)} /><div className="add-menu terminal-upload-menu" role="menu" aria-label="终端上传" style={uploadMenu}><button type="button" role="menuitem" onClick={() => { setUploadMenu(null); terminalFileInput.current?.click(); }}><Paperclip size={16} />添加文件</button><button type="button" role="menuitem" onClick={() => { setUploadMenu(null); terminalFolderInput.current?.click(); }}><Folder size={16} />添加文件夹</button>{window.matchMedia('(pointer: coarse)').matches && <button type="button" role="menuitem" onClick={() => { setUploadMenu(null); cameraInput.current?.click(); }}><Image size={16} />拍照上传</button>}</div></>}
+    return () => { disposed = true; cancelAnimationFrame(frame); scheduleFitRef.current = null; termRef.current = null; fitRef.current = null; observer.disconnect(); terminalBus.removeEventListener('output', update); unbindScroll(); selection.dispose(); onData.dispose(); onResize.dispose(); term.dispose(); };
+  }, [terminal.id, initialized]);
+  useEffect(() => {
+    if (!active || !ready) return;
+    scheduleFitRef.current?.();
+    if (!window.matchMedia('(pointer: coarse)').matches) termRef.current?.focus();
+  }, [active, ready]);
+  return <section className={`terminal-view ${active ? 'visible' : ''}`} aria-label={terminalLabel(terminal.title)} aria-busy={!ready} onPasteCapture={event => { if (event.clipboardData.files.length) { event.preventDefault(); event.stopPropagation(); onUpload(event.clipboardData.files); } }}><div className="terminal-caption"><span><TerminalSquare size={14} />{terminalLabel(terminal.title)}</span><div className="terminal-copy-tools"><span className="terminal-copy-hint">{/Mac/.test(navigator.platform) ? 'Option + 拖动选择 · ⌘C 复制' : 'Shift + 拖动选择 · Ctrl + Shift + C 复制'}</span><span role="status">{copyStatus}</span><button type="button" className="terminal-upload-toggle" aria-label="终端上传附件" aria-haspopup="menu" aria-expanded={!!uploadMenu} disabled={!connected} onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); setUploadMenu(uploadMenu ? null : { left: Math.max(8, Math.min(bounds.left, window.innerWidth - 202)), top: bounds.bottom + 6 }); }}><Paperclip size={14} />上传</button><button type="button" aria-label="复制选中内容" disabled={!hasSelection} onMouseDown={event => event.preventDefault()} onClick={copySelection}><Copy size={13} />复制</button><button type="button" className="terminal-keyboard-toggle" aria-label={keyboardOpen ? '收起终端键盘' : '显示终端键盘'} aria-expanded={keyboardOpen} onPointerDown={event => event.preventDefault()} onClick={() => setKeyboardOpen(value => !value)}><Keyboard size={14} />按键</button><span>{terminal.exited ? `已退出 · ${terminal.exitCode}` : terminal.isDefault ? 'Codex CLI' : '本机 Shell'}</span></div></div>{uploadMenu && <><div className="menu-dismiss" onClick={() => setUploadMenu(null)} /><div className="add-menu terminal-upload-menu" role="menu" aria-label="终端上传" style={uploadMenu}><button type="button" role="menuitem" onClick={() => { setUploadMenu(null); terminalFileInput.current?.click(); }}><Paperclip size={16} />添加文件</button><button type="button" role="menuitem" onClick={() => { setUploadMenu(null); terminalFolderInput.current?.click(); }}><Folder size={16} />添加文件夹</button>{window.matchMedia('(pointer: coarse)').matches && <button type="button" role="menuitem" onClick={() => { setUploadMenu(null); cameraInput.current?.click(); }}><Image size={16} />拍照上传</button>}</div></>}
     <input ref={terminalFileInput} type="file" multiple className="visually-hidden" aria-label="选择终端上传文件" onChange={event => { onUpload(event.target.files); event.target.value = ''; }} />
     <input ref={terminalFolderInput} type="file" webkitdirectory="" directory="" multiple className="visually-hidden" aria-label="选择终端上传文件夹" onChange={event => { onUpload(folderFromFiles(event.target.files)); event.target.value = ''; }} />
     <input ref={cameraInput} type="file" accept="image/*" capture="environment" className="visually-hidden" aria-label="终端拍照上传" onChange={event => { onUpload(event.target.files); event.target.value = ''; }} />
-    <div className="terminal-container" ref={container} />
-    {files.length > 0 && <section className="terminal-upload-panel" aria-label="终端附件"><header><button type="button" aria-label={filesExpanded ? '收起终端附件' : '展开终端附件'} aria-expanded={filesExpanded} onClick={() => setFilesExpanded(value => !value)}><Paperclip size={12} /><span>附件 · {files.length}</span><small>{files.some(file => file.status === 'uploading') ? '上传中…' : files.some(file => file.status === 'error') ? '有文件上传失败' : '已上传'}</small><ChevronDown size={12} style={{ transform: filesExpanded ? 'rotate(180deg)' : undefined }} /></button><button type="button" disabled={!connected || terminal.exited || !files.some(file => file.status === 'done')} onClick={() => insertPaths(files)}>插入全部路径</button></header>{filesExpanded && <div className="terminal-upload-list">{files.map(file => <UploadCard key={file.id} file={file} onRemove={() => onRemove(file)} onRetry={() => onRetry(file)} insertDisabled={!connected || terminal.exited} onInsert={() => insertPaths([file])} />)}</div>}<p className="terminal-upload-note" role="status">{uploadStatus || '上传完成后，插入路径并按回车提交'}</p></section>}
-    <div className="terminal-keyboard-host" hidden={!keyboardOpen}><TerminalKeyboard terminalRef={termRef} disabled={!active || !connected || terminal.exited} /></div>{terminal.exited && <div className="terminal-exited">{terminal.isDefault ? <button onClick={onRestart}>重新打开 Codex</button> : '此终端已退出，点击「＋」可新建终端。'}</div>}</section>;
+    <div className="terminal-screen"><div className="terminal-container" ref={container} />{!ready && <div className="terminal-loading" role="status"><LoaderCircle size={16} className="spin" />正在恢复终端…</div>}</div>
+    {files.length > 0 && <section className="terminal-upload-panel" aria-label="终端附件"><header><button type="button" aria-label={filesExpanded ? '收起终端附件' : '展开终端附件'} aria-expanded={filesExpanded} onClick={() => setFilesExpanded(value => !value)}><Paperclip size={12} /><span>附件 · {files.length}</span><small>{files.some(file => file.status === 'uploading') ? '上传中…' : files.some(file => file.status === 'error') ? '有文件上传失败' : '已上传'}</small><ChevronDown size={12} style={{ transform: filesExpanded ? 'rotate(180deg)' : undefined }} /></button><button type="button" disabled={!ready || !connected || terminal.exited || !files.some(file => file.status === 'done')} onClick={() => insertPaths(files)}>插入全部路径</button></header>{filesExpanded && <div className="terminal-upload-list">{files.map(file => <UploadCard key={file.id} file={file} onRemove={() => onRemove(file)} onRetry={() => onRetry(file)} insertDisabled={!ready || !connected || terminal.exited} onInsert={() => insertPaths([file])} />)}</div>}<p className="terminal-upload-note" role="status">{uploadStatus || '上传完成后，插入路径并按回车提交'}</p></section>}
+    <div className="terminal-keyboard-host" hidden={!keyboardOpen}><TerminalKeyboard terminalRef={termRef} disabled={!active || !ready || !connected || terminal.exited} /></div>{terminal.exited && <div className="terminal-exited">{terminal.isDefault ? <button onClick={onRestart}>重新打开 Codex</button> : '此终端已退出，点击「＋」可新建终端。'}</div>}</section>;
 }
 
 function App() {
@@ -320,6 +355,8 @@ function App() {
   const [terminals, setTerminals] = useState([]);
   const [activeId, setActiveId] = useState(localStorage.getItem('mono-active-chat'));
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('mono-active-tab') || 'chat');
+  const [chatOpened, setChatOpened] = useState(activeTab === 'chat');
+  useEffect(() => { if (activeTab === 'chat') setChatOpened(true); }, [activeTab]);
   const [activeWorkspaceId, setActiveWorkspaceId] = useState(localStorage.getItem('mono-active-workspace'));
   const [config, setConfig] = useState({ workspace: '', codexStatus: 'starting' });
   const [connection, setConnection] = useState('connecting');
@@ -768,7 +805,7 @@ function App() {
       <div className={`chat-panel ${activeTab === 'chat' ? 'visible' : ''}`}>
         {conversation?.archivedAt && <div className="archived-banner"><Archive size={16} /><span>此对话已归档，恢复后可以继续。</span><button disabled={!connected} onClick={() => { patchConversation(chatId, { archived: false }).catch(() => {}); }}><ArchiveRestore size={15} />恢复对话</button></div>}
         <div className="message-scroller" ref={messageList} onScroll={e => { const el = e.currentTarget; const near = el.scrollHeight - el.scrollTop - el.clientHeight < 100; nearBottomRef.current = near; setNearBottom(near); }}>
-          {!hasMessages ? <div className="welcome"><div className="welcome-symbol"><Mark large /></div><p className="eyebrow">你的想法，本地实现</p><h1>今天想做点什么？</h1><p className="welcome-description">一起写代码、探索项目，或把文件拖到这里。</p><div className="suggestions"><button aria-label="探索项目" onClick={() => { updateDraft(chatId, d => ({ ...d, text: '查看当前工作目录，介绍项目结构和可以从哪里开始。' })); textInput.current?.focus(); }}><Folder size={20} /><span className="suggestion-copy"><strong>探索项目</strong><small>了解结构与关键文件</small></span><ChevronRight size={13} /></button><button aria-label="编写代码" onClick={() => { updateDraft(chatId, d => ({ ...d, text: '帮我实现一个功能：' })); textInput.current?.focus(); }}><Code2 size={20} /><span className="suggestion-copy"><strong>编写代码</strong><small>把想法变成可用功能</small></span><ChevronRight size={13} /></button><button aria-label="添加文件" onClick={() => fileInput.current?.click()}><Paperclip size={20} /><span className="suggestion-copy"><strong>添加文件</strong><small>添加资料，开始分析</small></span><ChevronRight size={13} /></button></div></div> : <div className="messages">{conversation.turns.map(turn => <React.Fragment key={turn.id}><TurnItems turn={turn} conversation={conversation} />{turn.status === 'interrupted' && <div className="context-notice">已停止生成</div>}{turn.status === 'failed' && <div className="turn-error">{turn.error?.message || '本次回复失败，请重试。'}</div>}</React.Fragment>)}{requests.map(request => <Approval key={request.id} request={request} onError={setError} />)}{conversation.error && <div className="turn-error" role="alert">{conversation.error}</div>}</div>}
+          {chatOpened && (!hasMessages ? <div className="welcome"><div className="welcome-symbol"><Mark large /></div><p className="eyebrow">你的想法，本地实现</p><h1>今天想做点什么？</h1><p className="welcome-description">一起写代码、探索项目，或把文件拖到这里。</p><div className="suggestions"><button aria-label="探索项目" onClick={() => { updateDraft(chatId, d => ({ ...d, text: '查看当前工作目录，介绍项目结构和可以从哪里开始。' })); textInput.current?.focus(); }}><Folder size={20} /><span className="suggestion-copy"><strong>探索项目</strong><small>了解结构与关键文件</small></span><ChevronRight size={13} /></button><button aria-label="编写代码" onClick={() => { updateDraft(chatId, d => ({ ...d, text: '帮我实现一个功能：' })); textInput.current?.focus(); }}><Code2 size={20} /><span className="suggestion-copy"><strong>编写代码</strong><small>把想法变成可用功能</small></span><ChevronRight size={13} /></button><button aria-label="添加文件" onClick={() => fileInput.current?.click()}><Paperclip size={20} /><span className="suggestion-copy"><strong>添加文件</strong><small>添加资料，开始分析</small></span><ChevronRight size={13} /></button></div></div> : <div className="messages">{conversation.turns.map(turn => <React.Fragment key={turn.id}><TurnItems turn={turn} conversation={conversation} />{turn.status === 'interrupted' && <div className="context-notice">已停止生成</div>}{turn.status === 'failed' && <div className="turn-error">{turn.error?.message || '本次回复失败，请重试。'}</div>}</React.Fragment>)}{requests.map(request => <Approval key={request.id} request={request} onError={setError} />)}{conversation.error && <div className="turn-error" role="alert">{conversation.error}</div>}</div>)}
         </div>
         {!nearBottom && <button className="jump-bottom" aria-label="回到最新消息" onClick={() => { nearBottomRef.current = true; messageList.current?.scrollTo({ top: messageList.current.scrollHeight, behavior: 'smooth' }); }}><ArrowUp size={16} /></button>}
         <div className="composer-section">{working && !requests.length && <WorkStatus conversation={conversation} submitting={submitting} />}<form className={`composer ${dragging ? 'drag-active' : ''}`} onSubmit={sendMessage}>{draft.files.length > 0 && <div className="upload-list">{draft.files.map(file => <UploadCard key={file.id} file={file} onRemove={() => removeFile(file)} onRetry={() => uploadFile(chatId, file)} />)}</div>}<SlashMenu ref={slashRef} value={draft.text} inputRef={textInput} disabled={!chatId || !!conversation?.archivedAt || !connected || commandBusy} working={working} onCommand={executeSlash} onComplete={text => updateDraft(chatId, value => ({ ...value, text }))} /><textarea aria-autocomplete="list" aria-controls="slash-command-menu" aria-haspopup="listbox" ref={textInput} aria-label="发送给 Codex" placeholder="向 Codex 提问，或拖入文件…" value={draft.text} disabled={!chatId || !!conversation?.archivedAt} rows={1} onChange={e => updateDraft(chatId, d => ({ ...d, text: e.target.value }))} onKeyDown={e => { if (slashRef.current?.handleKey(e)) return; if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) { e.preventDefault(); sendMessage(); } }} onPaste={e => { const files = e.clipboardData.files; if (files.length) { e.preventDefault(); addFiles(files); } }} /><div className="composer-toolbar"><div className="composer-tools"><button type="button" className="icon-button attach-button" aria-label="添加附件" title="添加文件或文件夹" onClick={event => { const bounds = event.currentTarget.getBoundingClientRect(); setAttachmentMenu(attachmentMenu ? false : { left: bounds.left, bottom: window.innerHeight - bounds.top + 8 }); }} aria-expanded={!!attachmentMenu} disabled={!chatId || !!conversation?.archivedAt}><Plus size={20} /></button>{attachmentMenu && <><div className="menu-dismiss" onClick={() => setAttachmentMenu(false)} /><div className="add-menu attachment-menu" style={attachmentMenu}><button type="button" onClick={() => { setAttachmentMenu(false); fileInput.current?.click(); }}><Paperclip size={16} />添加文件</button><button type="button" onClick={() => { setAttachmentMenu(false); folderInput.current?.click(); }}><Folder size={16} />添加文件夹</button></div></>}<SessionControls conversation={conversation} models={config.models} modelsError={config.modelsError} disabled={working || !!conversation?.archivedAt || !connected || !chatId || config.codexStatus !== 'ready'} busy={settingsBusy || commandBusy} onChange={changeSettings} onRetry={refreshModels} menuRequest={selectorRequest} /></div><div className="composer-right"><span className="enter-hint">Enter 发送</span>{working ? <button type="button" className="send-button stop-button" aria-label="停止生成" title="停止生成" disabled={submitting && !conversation?.activeTurnId} onClick={stop}><Square size={13} fill="currentColor" /></button> : <button className="send-button" type="submit" disabled={!canSend} aria-label="发送消息" title="发送消息"><ArrowUp size={20} strokeWidth={2.5} /></button>}</div></div></form><div className="composer-caption"><span>Shift + Enter 换行</span></div></div>
