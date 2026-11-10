@@ -1,0 +1,3 @@
+.message-content{min-height:100%;display:flow-root}
+.message-content>.welcome{min-height:inherit}
+.message-scroller{overflow-anchor:none;overscroll-behavior-y:contain}

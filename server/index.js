@@ -9,7 +9,9 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { Codex } from './codex.js';
 import { terminalManager, terminalInfo } from './terminals.js';
+import { terminalDownloadsRouter } from './terminalDownloads.js';
 import { uploadRouter } from './uploads.js';
+import { createUploadCleanup, uploadCleanupSettings } from './uploadCleanup.js';
 import { historyRouter } from './history.js';
 import { mediaRouter } from './media.js';
 import { actionsRouter } from './actions.js';
@@ -17,9 +19,11 @@ import { goalsRouter } from './goals.js';
 import { createResourceMonitor } from './resources.js';
 import { usageStatsRouter } from './usageStats.js';
 import { startTask } from './tasks.js';
+import { createMessageSender } from './messages.js';
+import { createSocketSender } from './socketSender.js';
 import { migrateWorkspaces, getWorkspace, workspaceRouter } from './workspaces.js';
 import { applyNotification } from '../shared/conversation.js';
-import { permissionFor, validateSettings, turnSettings } from '../shared/settings.js';
+import { permissionFor, validateSettings } from '../shared/settings.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const dataDir = path.resolve(process.env.DATA_DIR || path.join(root, '.data'));
@@ -53,6 +57,8 @@ function save(immediate = false) {
   };
   if (immediate) write(); else saveTimer = setTimeout(write, 250);
 }
+const uploadCleanup = createUploadCleanup({ state, uploadDir,
+  codexHome: process.env.CODEX_HOME || path.join(os.homedir(), '.codex'), save, ...uploadCleanupSettings() });
 const app = express();
 app.disable('x-powered-by');
 const server = createServer(app);
@@ -73,11 +79,16 @@ const resources = createResourceMonitor({ root, dataDir, getProcessRoles: () => 
 const loaded = new Set();
 const sessions = new Map();
 const loginAttempts = new Map();
+const socketSenders = new WeakMap();
 const send = (socket, message) => {
-  if (socket.readyState === WebSocket.OPEN) {
-    if (socket.bufferedAmount > 8 * 1024 * 1024) return socket.close(1013, '连接过慢，请重连');
-    socket.send(JSON.stringify(message));
+  if (socket.readyState !== WebSocket.OPEN) return;
+  if (!socketSenders.has(socket)) socketSenders.set(socket, createSocketSender(socket));
+  if (message.type === 'conversation/updated' && !socket.conversationPatches) {
+    const conversation = conversationByThread(message.conversation.threadId);
+    if (conversation) socketSenders.get(socket).send({ type: 'conversation', conversation });
+    return;
   }
+  socketSenders.get(socket).send(message);
 };
 const broadcast = message => { for (const socket of wss.clients) send(socket, message); };
 const conversationByThread = threadId => state.conversations.find(c => c.threadId === threadId);
@@ -88,13 +99,24 @@ function snapshot() {
     approvals: [...approvals.values()] };
 }
 const publishTimers = new Map();
-function publish(conversation) {
+function publish(conversation, change = null) {
   if (conversation.provisional) return;
-  if (publishTimers.has(conversation.id)) return;
-  publishTimers.set(conversation.id, setTimeout(() => {
+  const pending = publishTimers.get(conversation.id);
+  if (pending) {
+    if (!change) pending.full = true;
+    if (change?.turnId) pending.turnIds.add(change.turnId);
+    return;
+  }
+  const update = { full: !change, turnIds: new Set(change?.turnId ? [change.turnId] : []) };
+  update.timer = setTimeout(() => {
     publishTimers.delete(conversation.id);
-    broadcast({ type: 'conversation', conversation });
-  }, 40));
+    if (update.full) broadcast({ type: 'conversation', conversation });
+    else {
+      const { turns, ...metadata } = conversation;
+      broadcast({ type: 'conversation/updated', conversation: metadata, turns: turns.filter(turn => update.turnIds.has(turn.id)) });
+    }
+  }, 40);
+  publishTimers.set(conversation.id, update);
   save();
 }
 
@@ -145,7 +167,7 @@ app.use('/api/resources', resources.router);
 app.use('/api/usage-stats', usageStatsRouter({ codexHome: process.env.CODEX_HOME || path.join(os.homedir(), '.codex') }));
 app.get('/api/state', (req, res) => res.json(snapshot()));
 app.use('/api', workspaceRouter({ state, defaultId: defaultWorkspaceId, save, broadcast }));
-app.use('/api/conversations', mediaRouter({ state, uploadDir }));
+app.use('/api/conversations', mediaRouter({ state }));
 app.use('/api/history', historyRouter({ codex, state, save, broadcast, models: () => models }));
 
 async function refreshModels() {
@@ -245,39 +267,7 @@ async function ensureLoaded(c, refresh = false) {
 }
 app.use('/api/conversations', goalsRouter({ codex, state, save, publish, ensureLoaded }));
 app.use('/api/conversations', actionsRouter({ codex, state, save, publish, ensureLoaded, threadSettings, loaded }));
-async function startConversationTurn(c, body) {
-  if (c.archivedAt || c.archiving) throw Object.assign(new Error('请先恢复归档的对话'), { status: 409 });
-  if (c.status === 'active' || c.starting || c.actionBusy || c.goalBusy) throw Object.assign(new Error('请等待当前回复完成，或先停止生成'), { status: 409 });
-  const text = typeof body.text === 'string' ? body.text.trim() : '';
-  const ids = body.attachments || [];
-  if (!Array.isArray(ids) || ids.length > 20) throw Object.assign(new Error('最多附加 20 个文件'), { status: 400 });
-  const attachments = ids.map(id => state.uploads[id]);
-  if (attachments.some(a => !a || !fs.existsSync(a.path))) throw Object.assign(new Error('附件未上传完成或文件已被移除'), { status: 400 });
-  if (!text && !attachments.length) throw Object.assign(new Error('请输入消息或添加附件'), { status: 400 });
-  const skills = body.skills || [];
-  if (!Array.isArray(skills) || skills.length > 10 || skills.some(skill => typeof skill?.name !== 'string' || typeof skill?.path !== 'string')) throw Object.assign(new Error('技能信息无效'), { status: 400 });
-  c.starting = true;
-  try {
-    if (skills.length) {
-      const available = (await codex.call('skills/list', { cwds: [c.cwd] })).data.flatMap(entry => entry.skills);
-      if (skills.some(skill => !available.some(item => item.path === skill.path && item.name === skill.name && item.enabled !== false))) throw Object.assign(new Error('选择的技能不可用，请重新选择'), { status: 400 });
-    }
-    await ensureLoaded(c);
-    c.error = null;
-    const clientId = randomUUID();
-    c.attachments[clientId] = { text, files: attachments };
-    const fileContext = attachments.length ? '\n\n用户已将以下附件上传至本机，可通过绝对路径读取：\n' + attachments.map(a => JSON.stringify({ name: a.name, path: a.path, size: a.size, ...(a.kind === 'folder' ? { kind: 'folder', fileCount: a.fileCount } : {}) })).join('\n') : '';
-    const input = [{ type: 'text', text: (text || '请查看我上传的文件。') + fileContext }];
-    for (const skill of skills) input.push({ type: 'skill', name: skill.name, path: skill.path });
-    for (const a of attachments) if (a.image) input.push({ type: 'localImage', path: a.path });
-    const result = await codex.call('turn/start', { threadId: c.threadId, clientUserMessageId: clientId, input, cwd: c.cwd, ...turnSettings(c) });
-    c.activeTurnId = result.turn.id;
-    c.updatedAt = Date.now();
-    if (c.title === '新建任务' || c.title === '新对话') c.title = (text || attachments[0]?.name || '新建任务').slice(0, 30);
-    publish(c);
-    return { turnId: result.turn.id };
-  } finally { c.starting = false; }
-}
+const startConversationTurn = createMessageSender({ codex, state, ensureLoaded, publish, uploadCleanup });
 app.post('/api/conversations/:id/messages', async (req, res) => {
   res.json(await startConversationTurn(getConversation(req), req.body || {}));
 });
@@ -310,9 +300,10 @@ app.post('/api/approvals/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-app.use('/api/uploads', uploadRouter({ uploadDir, uploads: state.uploads, save }));
+app.use('/api/uploads', uploadRouter({ uploadDir, uploads: state.uploads, save, touch: uploadCleanup.touch }));
 
 const terminalService = terminalManager({ state, defaultWorkspaceId, terminals, broadcast });
+app.use('/api/terminals', terminalDownloadsRouter({ terminals }));
 app.use('/api/terminals', terminalService.router);
 app.use('/api', (req, res) => res.status(404).json({ error: '接口不存在' }));
 const staticDir = path.resolve(process.env.STATIC_DIR || path.join(root, 'dist'));
@@ -337,9 +328,15 @@ wss.on('connection', socket => {
   socket.on('message', raw => {
     try {
       const message = JSON.parse(raw);
+      if (message.type === 'client/hello') { socket.conversationPatches = message.conversationPatches === true; return; }
       const t = terminals.get(message.id);
       if (!t || t.exited) return;
-      if (message.type === 'terminal/input' && typeof message.data === 'string' && message.data.length <= 65536) t.pty.write(message.data);
+      if (message.type === 'terminal/input' && typeof message.data === 'string' && message.data.length <= 65536) {
+        const input = (t.uploadInputTail || '') + message.data;
+        uploadCleanup.markTextUsed(input);
+        t.uploadInputTail = input.slice(-72);
+        t.pty.write(message.data);
+      }
       if (message.type === 'terminal/resize' && Number.isInteger(message.cols) && Number.isInteger(message.rows)) {
         t.cols = Math.max(10, Math.min(400, message.cols));
         t.rows = Math.max(3, Math.min(160, message.rows));
@@ -368,7 +365,7 @@ codex.on('notification', ({ method, params }) => {
     for (const [id, a] of approvals) if (a.params.threadId === c.threadId) approvals.delete(id);
     broadcast({ type: 'approvals', approvals: [...approvals.values()] });
   }
-  publish(c);
+  publish(c, { turnId: params.turnId || params.turn?.id });
 });
 codex.on('request', message => {
   if (!conversationByThread(message.params?.threadId)) {
@@ -390,9 +387,8 @@ codex.on('status', status => {
   broadcast({ type: 'codex/status', status });
 });
 
-try { terminalService.ensureDefault(defaultWorkspaceId); }
-catch (error) { console.error('默认 Codex 终端启动失败:', error.message); }
 save(true);
+uploadCleanup.start();
 server.listen(port, host, () => console.log(`Mono Workspace listening on http://${host}:${port} · ${workspace}`));
 try {
   await codex.start();
@@ -404,6 +400,7 @@ let shuttingDown = false;
 function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
+  uploadCleanup.stop();
   save(true);
   clearInterval(heartbeat);
   for (const terminal of terminals.values()) terminal.pty.kill();

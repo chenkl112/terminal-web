@@ -26,7 +26,8 @@ test('left-aligned usage controls show independent real token and context detail
   await context.click();
   const contextDetails = page.getByRole('region', { name: '上下文用量详情' });
   await expect(contextDetails).toContainText('~54.8K / 1M');
-  await expect(contextDetails).toContainText('缓存输入');
+  await expect(contextDetails).toHaveText('上下文已用 5%~54.8K / 1M');
+  await expect(contextDetails.getByRole('progressbar', { name: '上下文总用量进度', exact: true })).toHaveAttribute('aria-valuenow', '5');
   conversation.usage.modelContextWindow = 828400;
   socket.send(JSON.stringify({ type: 'conversation', conversation }));
   await expect(contextDetails).toContainText('~54.8K / 828.4K');

@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { marked } from 'marked';
-import { isLocalFileReference } from '../shared/media.js';
+import { decodeFileReference, isLocalFileReference } from '../shared/media.js';
 
 const referenceCache = new Map();
 function markdownReferences(text) {
@@ -22,7 +22,11 @@ function resolveReference(reference, cwd) {
   try {
     if (!isLocalFileReference(reference)) return null;
     if (/^file:/i.test(reference)) { const value = fileURLToPath(reference); return value.includes('\0') ? null : value; }
-    const value = decodeURIComponent(reference.replace(/^sandbox:/i, '').split(/[?#]/)[0]);
+    const raw = reference.replace(/^sandbox:/i, '').split(/[?#]/)[0];
+    // Markdown often contains literal filesystem names such as “含100%标准线.zip”.
+    // A standalone % is valid in a filename and is not necessarily URL encoding.
+    let value = decodeFileReference(raw);
+    value = value.replace(/:\d+(?::\d+)?$/, '');
     if (!value || value.includes('\0')) return null;
     return path.resolve(cwd, value);
   } catch { return null; }
@@ -49,9 +53,7 @@ function imageMime(header) {
   if (header.toString('ascii', 4, 8) === 'ftyp' && /avif|avis/.test(header.toString('ascii', 8, 32))) return 'image/avif';
   return null;
 }
-const inside = (filename, root) => filename === root || filename.startsWith(root + path.sep);
-
-export function mediaRouter({ state, uploadDir }) {
+export function mediaRouter({ state }) {
   const router = express.Router();
   router.get('/:id/files', async (req, res, next) => {
     const conversation = state.conversations.find(c => c.id === req.params.id);
@@ -67,8 +69,6 @@ export function mediaRouter({ state, uploadDir }) {
       const handle = await fs.open(file, 'r');
       try { const header = Buffer.alloc(64); const { bytesRead } = await handle.read(header, 0, 64, 0); mime = imageMime(header.subarray(0, bytesRead)); }
       finally { await handle.close(); }
-      const roots = await Promise.all([conversation.cwd, uploadDir, '/mnt/data'].filter(Boolean).map(root => fs.realpath(root).catch(() => path.resolve(root))));
-      if (!roots.some(root => inside(file, root)) && !(reference.nativeImage && mime)) return res.status(403).json({ error: '文件不在当前会话可访问的目录中' });
       if (req.query.image === '1' && !mime) return res.status(415).json({ error: '此文件无法作为图片预览，请下载查看' });
     } catch (error) {
       if (['ENOENT', 'ENOTDIR'].includes(error.code)) return res.status(404).json({ error: '文件不存在或已被移动' });

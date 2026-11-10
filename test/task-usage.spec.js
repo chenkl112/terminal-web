@@ -34,7 +34,7 @@ test('new task drafts stay out of history until a turn starts and usage dashboar
     await page.keyboard.press('Control+n'); await expect(page.locator('.header-title')).toHaveText('新建任务');
     expect(conversations).toHaveLength(1); expect(creationCalls).toHaveLength(0); expect(taskCalls).toHaveLength(0);
     await input.fill('fail this task'); await input.press('Enter'); await expect.poll(() => taskCalls.length).toBe(1); expect(conversations).toHaveLength(1);
-    const workStatus = page.getByRole('status').filter({ hasText: '正在启动任务' });
+    const workStatus = page.getByRole('status', { name: '任务进度', exact: true }).filter({ hasText: '正在启动任务' });
     await expect(workStatus).toBeVisible();
     await expect(page.locator('.sidebar .sidebar-bottom')).not.toContainText('正在启动任务');
     expect(await workStatus.evaluate(element => element.parentElement.classList.contains('composer-section'))).toBeTruthy();
@@ -42,7 +42,7 @@ test('new task drafts stay out of history until a turn starts and usage dashboar
     await expect(page.getByRole('alert')).toContainText('模拟任务启动失败'); await expect(workStatus).toHaveCount(0); await expect(page.locator('.conversation-row')).toHaveCount(1); await expect(input).toHaveValue('fail this task');
     await input.fill('实现导出功能'); await input.press('Enter'); await expect.poll(() => taskCalls.length).toBe(2); await expect.poll(() => conversations.length).toBe(2);
     await expect.poll(() => page.locator('.conversation-row').count()).toBe(2); await expect(input).toHaveValue('');
-    await expect(page.getByRole('status')).toContainText('正在运行命令'); await expect(page.getByRole('status')).toContainText('npm test');
+    await expect(page.getByRole('status', { name: '任务进度', exact: true })).toContainText('正在运行命令'); await expect(page.getByRole('status', { name: '任务进度', exact: true })).toContainText('npm test');
     expect(creationCalls).toHaveLength(0); expect(taskCalls[1]).toMatchObject({ text: '实现导出功能', workspaceId: workspace.id, model: 'gpt-6.1-sol', effort: 'medium' });
     await page.getByRole('button', { name: '使用统计', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: '使用统计', exact: true }); await expect(dialog).toBeVisible();

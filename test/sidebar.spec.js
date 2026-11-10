@@ -94,7 +94,7 @@ test('workspace switching, real terminal cwd, pinned conversations, archive/rest
     expect((await (await request.get('/api/state')).json()).conversations.find(c => c.id === pinnedId).pinnedAt).toBeNull();
     await other.close();
 
-    await page.getByRole('button', { name: '添加工作区' }).click();
+    await page.getByRole('button', { name: '新建标签页' }).click();
     await page.getByRole('button', { name: /新建终端/ }).click();
     state = await (await request.get('/api/state')).json();
     terminal = state.terminals.find(t => t.workspaceId === a.workspaceId);

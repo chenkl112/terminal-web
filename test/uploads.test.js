@@ -59,6 +59,27 @@ test('uploads resume from disk, reject duplicate bytes and incomplete completion
   assert.ok(fs.statSync(path.join(finished.data.path, '__proto__')).isDirectory());
 });
 
+test('uploaded images and downloads are served from the managed hidden data directory', async t => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mono-upload-download-'));
+  const uploadDir = path.join(directory, '.data', 'uploads'); fs.mkdirSync(uploadDir, { recursive: true });
+  const uploads = {};
+  for (const [name, image, type, contents] of [['照片.png', true, 'image/png', 'png bytes'], ['结果.txt', false, 'text/plain', '下载内容']]) {
+    const id = randomUUID(), target = path.join(uploadDir, id); fs.mkdirSync(target);
+    const filename = path.join(target, name); fs.writeFileSync(filename, contents);
+    uploads[id] = { id, name, image, type, path: filename, contents };
+  }
+  const app = express(); app.use('/api/uploads', uploadRouter({ uploadDir, uploads, save() {} }));
+  const server = app.listen(0, '127.0.0.1'); await once(server, 'listening');
+  t.after(() => { server.closeAllConnections(); server.close(); fs.rmSync(directory, { recursive: true, force: true }); });
+  for (const file of Object.values(uploads)) {
+    const url = `http://127.0.0.1:${server.address().port}/api/uploads/${file.id}`;
+    const response = await fetch(url); assert.equal(response.status, 200); assert.equal(await response.text(), file.contents);
+    if (file.image) assert.match(response.headers.get('content-type'), /^image\/png/);
+    else assert.match(response.headers.get('content-disposition'), /^attachment;/);
+    assert.equal((await fetch(url, { method: 'HEAD' })).status, 200);
+  }
+});
+
 test('streaming uploads write before request completion, lock partial offsets and roll back interrupted chunks', async t => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'mono-stream-upload-'));
   const uploadDir = path.join(directory, 'uploads'); fs.mkdirSync(uploadDir);

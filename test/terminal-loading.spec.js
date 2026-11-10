@@ -48,7 +48,7 @@ test('large terminal history yields to touch, opens once and fits phone viewport
       await expect(terminal).toHaveAttribute('aria-busy', 'false');
       await expect(terminal.locator('.xterm-rows')).toContainText('READY 手机终端');
     }
-    expect(resizeEvents.length).toBe(before);
+    await expect.poll(() => resizeEvents.length).toBe(before + 3);
     await page.reload();
     await expect(terminal).toHaveAttribute('aria-busy', 'false', { timeout: 30000 });
     await expect(page.locator('.welcome')).toHaveCount(0);

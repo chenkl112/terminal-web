@@ -63,7 +63,7 @@ test('model, reasoning and permissions persist and reach native Codex execution'
   expect((await (await request.get('/api/state')).json()).conversations.length).toBe(beforeDraft);
   await expect(page.locator('.header-title')).toHaveText('新建任务');
   await expect.poll(() => page.evaluate(() => localStorage.getItem('mono-active-chat'))).toBe(current.id);
-  await expect(page.getByRole('heading', { name: '今天想做点什么？' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '从一个想法开始' })).toBeVisible();
   await expect(page.getByRole('button', { name: '选择模型', exact: true })).toContainText(selected.displayName);
   await expect(page.getByRole('button', { name: '选择思考深度', exact: true })).toHaveText('中');
   await expect(page.getByRole('button', { name: '选择权限', exact: true })).toHaveText('完全访问');

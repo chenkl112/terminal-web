@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { CalendarDays, ChartNoAxesColumnIncreasing, Clock3, Flame, LoaderCircle, RefreshCw, Sparkles, TimerReset } from 'lucide-react';
+import { CalendarDays, ChartNoAxesColumnIncreasing, Flame, LoaderCircle, RefreshCw, Sparkles, TimerReset } from 'lucide-react';
 import { Modal } from './Sidebar.jsx';
 import { formatTokenCount } from '../shared/numberFormat.js';
 import './usageStats.css';
 
-const palette = ['#4699ff', '#55bd89', '#9674df', '#e19c4c', '#d96c73', '#45b8b8', '#a7a7a7'];
+const palette = ['#7aa2ff', '#a8bde8', '#587db9', '#8499b8', '#486087', '#c0cde2', '#65738f'];
 function duration(value) {
   if (!value) return '0 分钟';
   const minutes = Math.round(value / 60000);
@@ -22,17 +22,17 @@ function Summary({ icon: Icon, label, value }) {
 
 function TokenTrend({ data }) {
   const entries = data.activity.slice(-8), max = Math.max(1, ...entries.map(entry => entry.tokens));
-  const width = 900, height = 228, left = 8, right = 12, top = 12, bottom = 32;
+  const width = 900, height = 200, left = 12, right = 12, top = 12, bottom = 8;
   const x = index => left + index * (width - left - right) / Math.max(entries.length - 1, 1);
   const y = value => top + (max - value) / max * (height - top - bottom);
-  const points = entries.map((entry, index) => `${x(index)},${y(entry.tokens)}`).join(' ');
   const path = entries.map((entry, index) => `${index ? 'L' : 'M'}${x(index)} ${y(entry.tokens)}`).join(' ');
-  return <section className="usage-stat-panel usage-trend-panel"><h3>每日 Token 趋势</h3><div className="usage-trend-legend"><i />{data.models[0]?.model || 'Token 用量'}</div>
+  return <section className="usage-stat-panel usage-trend-panel"><h3>每日 Token 趋势</h3><div className="usage-trend-legend"><i />Token 用量</div>
     <svg className="usage-trend-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最近八天 Token 用量趋势" preserveAspectRatio="none">
       {[0.25, 0.5, 0.75, 1].map(value => <line key={value} x1={left} x2={width - right} y1={y(max * value)} y2={y(max * value)} className="usage-trend-grid" />)}
       {entries.length > 1 && <path d={path} className="usage-trend-line" />}
-      {entries.map((entry, index) => <g key={entry.date}><circle cx={x(index)} cy={y(entry.tokens)} r="3.5" className="usage-trend-point"><title>{formatDay(entry.date)} · {formatTokenCount(entry.tokens)} tokens</title></circle><text x={x(index)} y={height - 5} textAnchor="middle">{formatDay(entry.date)}</text></g>)}
+      {entries.map((entry, index) => <g key={entry.date}><circle cx={x(index)} cy={y(entry.tokens)} r="3.5" className="usage-trend-point"><title>{formatDay(entry.date)} · {formatTokenCount(entry.tokens)} tokens</title></circle></g>)}
     </svg>
+    <div className="usage-trend-dates" aria-hidden="true">{entries.map(entry => <span key={entry.date}>{formatDay(entry.date)}</span>)}</div>
   </section>;
 }
 
@@ -43,7 +43,7 @@ function ModelUsage({ models, total }) {
   return <section className="usage-stat-panel usage-model-panel"><h3>模型用量</h3><div className="usage-model-content"><svg viewBox="0 0 200 200" role="img" aria-label="不同模型 Token 占比" className="usage-model-donut">
     <circle cx="100" cy="100" r="73" className="usage-donut-track" />{segments.map(item => <circle key={item.model} cx="100" cy="100" r="73" className="usage-donut-segment" stroke={item.color} strokeDasharray={`${item.share * 4.586} ${458.6 - item.share * 4.586}`} strokeDashoffset={-item.start * 4.586} />)}
     <text x="100" y="94" textAnchor="middle" className="usage-donut-value">{formatTokenCount(total)}</text><text x="100" y="115" textAnchor="middle" className="usage-donut-unit">tokens</text>
-  </svg><div className="usage-model-legend">{segments.map(item => <div key={item.model}><div><i style={{ background: item.color }} /><span>{item.model}</span><small>{formatTokenCount(item.tokens)} tokens</small></div><b>{item.share.toFixed(1).replace(/\.0$/, '')}%</b></div>)}{!segments.length && <span className="usage-stat-empty">暂无模型数据</span>}</div></div></section>;
+  </svg><div className="usage-model-legend">{segments.map(item => <div key={item.model}><div><i style={{ background: item.color }} /><span title={item.model}>{item.model}</span><small>{formatTokenCount(item.tokens)} tokens</small></div><b>{item.share.toFixed(1).replace(/\.0$/, '')}%</b></div>)}{!segments.length && <span className="usage-stat-empty">暂无模型数据</span>}</div></div></section>;
 }
 
 function ActivityGrid({ data }) {

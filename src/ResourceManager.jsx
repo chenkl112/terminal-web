@@ -1,6 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ArrowDown, ArrowUp, ChevronDown, Cpu, HardDrive, LoaderCircle, MemoryStick, Network, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { Modal } from './Sidebar.jsx';
+import { RESOURCE_REFRESH_MS, getResourceMetrics, subscribeResourceMetrics, attachDiagnosticSession, resourceCache } from './resourceMetrics.js';
 
 const tabs = [{ id: 'cpu', label: 'CPU', icon: Cpu }, { id: 'memory', label: '内存', icon: MemoryStick }, { id: 'storage', label: '存储', icon: HardDrive }, { id: 'network', label: '网络', icon: Network }];
 const bytes = value => {
@@ -12,13 +13,14 @@ const bytes = value => {
 const percent = value => value == null ? '—' : `${value.toFixed(1)}%`;
 const width = value => `${Math.max(0, Math.min(100, value || 0))}%`;
 const time = value => new Date(value).toLocaleTimeString('zh-CN', { hour12: false });
+const storageColor = id => `var(--chart-${({ runtime: 1, uploads: 2, history: 3, cache: 4, logs: 5, backups: 6, other: 7 })[id] || 7})`;
 async function request(route, signal, method = 'GET') {
   const response = await fetch(`/api/resources${route}`, { method, signal });
   const data = await response.json(); if (!response.ok) throw new Error(data.error || '读取资源信息失败'); return data;
 }
 
 function UsageCard({ label, value, system, appPercent, systemPercent, note, icon: Icon }) {
-  return <section className="resource-usage-card"><div className="resource-card-label"><Icon size={16} />{label}</div><div className="resource-big-number">{value}<span>Codex 工作区</span></div>
+  return <section className="resource-usage-card"><div className="resource-metric-top"><div><div className="resource-card-label"><Icon size={16} />{label}</div><div className="resource-big-number">{value}<span>Codex 工作区</span></div></div><div className="resource-comparison"><span>整机占用</span><strong>{system}</strong></div></div>
     <div className="resource-usage-track" role="progressbar" aria-label={`${label}占用`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={appPercent == null ? undefined : Math.min(100, Math.max(0, appPercent))}>
       <span className="resource-system-fill" style={{ width: width(systemPercent) }} /><span className="resource-app-fill" style={{ width: width(appPercent) }} />
     </div><div className="resource-legend"><span><i className="resource-app-dot" />Codex 工作区</span><span><i className="resource-system-dot" />整机 <b>{system}</b></span></div><p>{note}</p>
@@ -37,10 +39,10 @@ function Storage({ data, busy, error, onRecalculate }) {
     {error && <div role="alert" className="resource-error">{error}</div>}
     {busy && !data && <div className="resource-loading"><LoaderCircle size={20} className="spin" />正在计算存储占用…</div>}
     {data?.disks.map(disk => <section className="resource-disk-card" key={disk.dev}><h3><HardDrive size={18} /><span title={disk.path}>{disk.path}</span></h3>
-      <div className="resource-storage-bar" role="img" aria-label="应用存储分类">{disk.categories.filter(category => category.bytes > 0).map(category => <span key={category.id} style={{ width: width(disk.appBytes ? category.bytes / disk.appBytes * 100 : 0), background: category.color }} title={`${category.label} ${bytes(category.bytes)}`} />)}</div>
+      <div className="resource-storage-bar" role="img" aria-label="应用存储分类">{disk.categories.filter(category => category.bytes > 0).map(category => <span key={category.id} style={{ width: width(disk.appBytes ? category.bytes / disk.appBytes * 100 : 0), background: storageColor(category.id) }} title={`${category.label} ${bytes(category.bytes)}`} />)}</div>
       <p className="resource-disk-caption">应用占用 {bytes(disk.appBytes)} · 剩余 {bytes(disk.available)} / 共 {bytes(disk.total)}</p>
-      <dl className="resource-storage-categories">{disk.categories.map(category => <div key={category.id}><dt><i style={{ background: category.color }} />{category.label}</dt><dd>{bytes(category.bytes)}</dd></div>)}</dl>
-      <div className="resource-storage-roots">{data.roots.filter(root => root.dev === disk.dev).map(root => <div key={root.path}><div><span>{root.label}</span><code>{root.path}</code></div><b>{bytes(root.bytes)}</b></div>)}</div>
+      <dl className="resource-storage-categories">{disk.categories.map(category => <div key={category.id}><dt><i style={{ background: storageColor(category.id) }} />{category.label}</dt><dd>{bytes(category.bytes)}</dd></div>)}</dl>
+      <details className="resource-storage-root-details"><summary>目录明细<ChevronDown size={14} /></summary><div className="resource-storage-roots">{data.roots.filter(root => root.dev === disk.dev).map(root => <div key={root.path}><div><span>{root.label}</span><code>{root.path}</code></div><b>{bytes(root.bytes)}</b></div>)}</div></details>
     </section>)}
     {data && <p className="resource-footnote">统计网页程序、网页数据与 Codex 数据目录的磁盘分配空间。{data.skipped ? `有 ${data.skipped} 个已移除或无权读取的项目未计入。` : ''}</p>}
   </>;
@@ -61,33 +63,41 @@ function NetworkPanel({ metrics, requests, onClear, clearing }) {
 }
 
 export default function ResourceManager({ onClose }) {
-  const [tab, setTab] = useState('cpu'), [metrics, setMetrics] = useState(null), [session, setSession] = useState(null), [error, setError] = useState('');
-  const [storage, setStorage] = useState(null), [storageBusy, setStorageBusy] = useState(false), [storageError, setStorageError] = useState('');
+  const { metrics, error: metricsError } = useSyncExternalStore(subscribeResourceMetrics, getResourceMetrics);
+  const [tab, setTab] = useState('cpu'), [session, setSession] = useState(null), [error, setError] = useState('');
+  const [networkError, setNetworkError] = useState('');
+  const [storage, setStorage] = useState(() => resourceCache.storage), [storageBusy, setStorageBusy] = useState(false), [storageError, setStorageError] = useState('');
   const [requests, setRequests] = useState({ items: [], dropped: 0 }), [clearing, setClearing] = useState(false);
   const controller = useRef(new AbortController()), tabButtons = useRef({});
   useEffect(() => {
-    let disposed = false, timer, id;
-    async function poll() {
-      try { const data = await request(`/metrics?session=${id}`, controller.current.signal); if (!disposed) { setMetrics(data); setError(''); } }
-      catch (error) { if (!disposed && error.name !== 'AbortError') setError('资源信息暂时无法读取，正在重试…'); }
-      if (!disposed) timer = setTimeout(poll, 2000);
-    }
-    request('/sessions', controller.current.signal, 'POST').then(data => { id = data.id; if (!disposed) { setSession(id); poll(); } else fetch(`/api/resources/sessions/${id}`, { method: 'DELETE', keepalive: true }).catch(() => {}); }).catch(error => { if (!disposed && error.name !== 'AbortError') setError('无法连接资源管理器，请关闭后重试'); });
-    return () => { disposed = true; clearTimeout(timer); controller.current.abort(); if (id) fetch(`/api/resources/sessions/${id}`, { method: 'DELETE', keepalive: true }).catch(() => {}); };
+    let disposed = false, id, release;
+    request('/sessions', controller.current.signal, 'POST').then(data => { id = data.id; if (!disposed) { setSession(id); release = attachDiagnosticSession(id); } else fetch(`/api/resources/sessions/${id}`, { method: 'DELETE', keepalive: true }).catch(() => {}); }).catch(error => { if (!disposed && error.name !== 'AbortError') setError('网络诊断暂时无法连接，请关闭后重试'); });
+    return () => { disposed = true; controller.current.abort(); release?.(); if (id) fetch(`/api/resources/sessions/${id}`, { method: 'DELETE', keepalive: true }).catch(() => {}); };
   }, []);
   useEffect(() => {
     if (tab !== 'network' || !session) return;
-    let disposed = false, timer;
+    let disposed = false, timer, pending = false, networkController;
     async function poll() {
-      try { const data = await request(`/requests?session=${session}`, controller.current.signal); if (!disposed) setRequests(data); }
-      catch (error) { if (!disposed && error.name !== 'AbortError') setError('网络记录暂时无法读取，正在重试…'); }
-      if (!disposed) timer = setTimeout(poll, 2000);
+      if (disposed || pending || document.visibilityState === 'hidden') return;
+      pending = true;
+      const startedAt = performance.now();
+      const current = new AbortController(); networkController = current;
+      const timeout = setTimeout(() => current.abort(), 5000);
+      try { const data = await request(`/requests?session=${session}`, current.signal); if (!disposed && !current.signal.aborted) { setRequests(data); setNetworkError(''); } }
+      catch { if (!disposed && document.visibilityState !== 'hidden') setNetworkError('网络记录暂时无法读取，正在重试…'); }
+      finally { clearTimeout(timeout); pending = false; }
+      if (!disposed && document.visibilityState !== 'hidden') timer = setTimeout(poll, current.signal.aborted ? 0 : Math.max(0, RESOURCE_REFRESH_MS - (performance.now() - startedAt)));
     }
-    poll(); return () => { disposed = true; clearTimeout(timer); };
+    function visibilityChanged() { clearTimeout(timer); if (document.visibilityState === 'hidden') networkController?.abort(); else poll(); }
+    document.addEventListener('visibilitychange', visibilityChanged);
+    poll(); return () => { disposed = true; clearTimeout(timer); networkController?.abort(); document.removeEventListener('visibilitychange', visibilityChanged); };
   }, [tab, session]);
   async function loadStorage(recalculate = false) {
     setStorageBusy(true); setStorageError('');
-    try { setStorage(await request(recalculate ? '/storage/recalculate' : '/storage', controller.current.signal, recalculate ? 'POST' : 'GET')); }
+    try {
+      const data = await request(recalculate ? '/storage/recalculate' : '/storage', controller.current.signal, recalculate ? 'POST' : 'GET');
+      if (!controller.current.signal.aborted) { resourceCache.storage = data; setStorage(data); }
+    }
     catch (error) { if (error.name !== 'AbortError') setStorageError('存储统计暂时无法读取，请重新计算'); }
     finally { setStorageBusy(false); }
   }
@@ -106,11 +116,11 @@ export default function ResourceManager({ onClose }) {
       const index = tabs.findIndex(item => item.id === focused), next = tabs[event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : (index + (event.key === 'ArrowLeft' ? -1 : 1) + tabs.length) % tabs.length]; setTab(next.id); tabButtons.current[next.id]?.focus();
     }}>{tabs.map(({ id, label, icon: Icon }) => <button key={id} ref={button => { tabButtons.current[id] = button; }} id={`resource-tab-${id}`} type="button" role="tab" aria-selected={tab === id} aria-controls={`resource-panel-${id}`} tabIndex={tab === id ? 0 : -1} onClick={() => setTab(id)}><Icon size={14} />{label}</button>)}</div></div>
     <div className="resource-manager-body" role="tabpanel" id={`resource-panel-${tab}`} aria-labelledby={`resource-tab-${tab}`}>
-      {error && <div className="resource-error" role="alert">{error}</div>}
-      {(tab === 'cpu' || memory) && <>{!metrics ? <div className="resource-loading"><LoaderCircle size={20} className="spin" />正在读取本机资源…</div> : <><UsageCard label={memory ? '内存' : 'CPU'} icon={memory ? MemoryStick : Cpu} value={memory ? bytes(metrics.memory.appRss) : percent(metrics.cpu.appPercent)} system={memory ? `${bytes(metrics.memory.used)} / ${bytes(metrics.memory.total)}` : percent(metrics.cpu.systemPercent)} appPercent={memory ? metrics.memory.appRss / metrics.memory.total * 100 : metrics.cpu.appPercent} systemPercent={memory ? metrics.memory.used / metrics.memory.total * 100 : metrics.cpu.systemPercent} note={memory ? '进程内存按 RSS 合计，包含共享页。' : metrics.cpu.appPercent == null ? '正在建立采样基线，下一次刷新显示 CPU 用量。' : `每 2 秒更新 · CPU 按整机 ${metrics.cores} 核总容量统计`} /><Processes metrics={metrics} tab={tab} /></>}</>}
+      {(error || metricsError || (tab === 'network' && networkError)) && <div className="resource-error" role="alert">{error || metricsError || networkError}</div>}
+      {(tab === 'cpu' || memory) && <>{!metrics ? <div className="resource-loading"><LoaderCircle size={20} className="spin" />正在读取本机资源…</div> : <><UsageCard label={memory ? '内存' : 'CPU'} icon={memory ? MemoryStick : Cpu} value={memory ? bytes(metrics.memory.appRss) : percent(metrics.cpu.appPercent)} system={memory ? `${bytes(metrics.memory.used)} / ${bytes(metrics.memory.total)}` : percent(metrics.cpu.systemPercent)} appPercent={memory ? metrics.memory.appRss / metrics.memory.total * 100 : metrics.cpu.appPercent} systemPercent={memory ? metrics.memory.used / metrics.memory.total * 100 : metrics.cpu.systemPercent} note={memory ? '进程内存按 RSS 合计，包含共享页。' : metrics.cpu.appPercent == null ? '正在建立采样基线，下一次刷新显示 CPU 用量。' : `每 1 秒更新 · CPU 按整机 ${metrics.cores} 核总容量统计`} /><Processes metrics={metrics} tab={tab} /></>}</>}
       {tab === 'storage' && <Storage data={storage} busy={storageBusy} error={storageError} onRecalculate={() => loadStorage(true)} />}
       {tab === 'network' && <NetworkPanel metrics={metrics} requests={requests} onClear={clearRequests} clearing={clearing} />}
     </div>
-    <div className="resource-manager-footer"><span className={metrics ? 'resource-live-dot' : 'resource-live-dot waiting'} />{metrics ? `最近更新 ${time(metrics.timestamp)}` : '等待本机数据'}<span>关闭窗口后停止采样</span></div>
+    <div className="resource-manager-footer"><span className={metrics && !metricsError ? 'resource-live-dot' : 'resource-live-dot waiting'} />{metrics ? `最近更新 ${time(metrics.timestamp)}` : '等待本机数据'}<span>{metricsError ? '更新中断 · 正在重试' : '每秒更新 · 关闭窗口后继续'}</span></div>
   </Modal>;
 }

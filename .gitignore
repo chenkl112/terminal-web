@@ -5,3 +5,5 @@ dist/
 test-results/
 playwright-report/
 *.log
+# Local files offered for download are runtime artifacts, not application assets.
+/public/assets/

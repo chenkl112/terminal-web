@@ -18,13 +18,13 @@ test('desktop chat, real terminal, drag upload with circular progress, and live 
   if (initial.conversations.some(c => c.turns.length)) await request.post('/api/conversations', { data: {} });
   await page.goto('/');
   await page.getByRole('tab', { name: 'Codex', exact: true }).click();
-  await expect(page.getByRole('heading', { name: '今天想做点什么？' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '从一个想法开始' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Codex', exact: true })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('button', { name: '新建任务', exact: true })).toBeEnabled();
   await expect(page.getByTestId('total-tokens')).toHaveText('—');
   await page.screenshot({ path: '.data/desktop-ready.png', animations: 'disabled' });
 
-  await page.getByRole('button', { name: '添加工作区' }).click();
+  await page.getByRole('button', { name: '新建标签页' }).click();
   await page.getByRole('button', { name: /新建终端/ }).click();
   await expect(page.locator('.terminal-view.visible .xterm')).toBeVisible();
   await page.locator('.terminal-view.visible .xterm-helper-textarea').focus();

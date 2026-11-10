@@ -42,7 +42,6 @@ export function terminalManager({ state, defaultWorkspaceId, terminals, broadcas
   router.post('/', (req, res) => res.status(201).json(terminalInfo(start(req.body?.workspaceId))));
   router.delete('/:id', (req, res) => {
     const terminal = terminals.get(req.params.id);
-    if (terminal?.isDefault) return res.status(403).json({ error: '默认 Codex 终端不可删除' });
     if (terminal) { terminals.delete(terminal.id); terminal.pty.kill(); broadcast({ type: 'terminal/deleted', id: terminal.id }); }
     res.json({ ok: true });
   });

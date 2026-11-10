@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Archive, ArchiveRestore, ArrowLeft, ArrowUp, ChartNoAxesColumnIncreasing, Check, ChevronDown, ChevronRight, Folder,
   FolderOpen, LoaderCircle, MessageCirclePlus, MessageSquare, MoreHorizontal, PanelLeftClose, Pin, PinOff, Plus,
   Search, SquarePen, History, X } from 'lucide-react';
+import './harnessSidebar.css';
 
 async function request(url, body) {
   const response = await fetch(url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {});
@@ -115,33 +116,53 @@ function WorkspacePicker({ initialPath, onClose, onSelect }) {
   </Modal>;
 }
 
-export default function Sidebar({ mark, workspaces, workspace, conversations, activeId, connected, ready, creating,
+export default function Sidebar({ workspaces, workspace, conversations, activeId, connected, ready, creating,
   onClose, onNew, onSelectChat, onSelectWorkspace, onAddWorkspace, onPatch, onHistory, onUsageStats }) {
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
   const [archived, setArchived] = useState(false);
   const [workspaceMenu, setWorkspaceMenu] = useState(null);
   const [picker, setPicker] = useState(false);
-  useEffect(() => { setArchived(false); setSearch(''); }, [workspace?.id]);
+  const searchInput = useRef(null);
+  const searchTrigger = useRef(null);
+  const shortcutModifier = /Mac|iPhone|iPad/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+  useEffect(() => { setArchived(false); setSearch(''); setShowSearch(false); }, [workspace?.id]);
+  useEffect(() => {
+    const openSearch = () => { setShowSearch(true); searchInput.current?.focus(); };
+    window.addEventListener('workspace:search', openSearch);
+    return () => window.removeEventListener('workspace:search', openSearch);
+  }, []);
+  useEffect(() => { if (showSearch) searchInput.current?.focus(); }, [showSearch]);
+  function closeSearch() {
+    setSearch(''); setShowSearch(false); searchTrigger.current?.focus();
+  }
   const current = conversations.filter(c => c.workspaceId === workspace?.id);
-  const visible = current.filter(c => !!c.archivedAt === archived && c.title.toLowerCase().includes(search.toLowerCase()));
-  const pinned = visible.filter(c => c.pinnedAt).sort((a, b) => b.pinnedAt - a.pinnedAt);
-  const recent = visible.filter(c => !c.pinnedAt).sort((a, b) => archived ? b.archivedAt - a.archivedAt : (b.updatedAt || b.createdAt) - (a.updatedAt || a.createdAt));
+  const query = search.trim().toLocaleLowerCase();
+  const visible = current.filter(c => !!c.archivedAt === archived && c.title.toLocaleLowerCase().includes(query));
+  const pinned = archived ? [] : visible.filter(c => c.pinnedAt).sort((a, b) => b.pinnedAt - a.pinnedAt);
+  const conversationTime = c => archived ? c.archivedAt : c.updatedAt || c.createdAt;
+  const recent = visible.filter(c => archived || !c.pinnedAt).sort((a, b) => conversationTime(b) - conversationTime(a));
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const groups = [
+    { label: '今天', items: recent.filter(c => conversationTime(c) >= today.getTime()) },
+    { label: '昨天', items: recent.filter(c => conversationTime(c) >= yesterday.getTime() && conversationTime(c) < today.getTime()) },
+    { label: '更早', items: recent.filter(c => !(conversationTime(c) >= yesterday.getTime())) }
+  ];
   const archivedCount = current.filter(c => c.archivedAt).length;
   function row(c) {
-    return <div key={c.id} data-conversation-id={c.id} className={`conversation-row ${c.id === activeId ? 'selected' : ''}`} onContextMenu={event => { event.preventDefault(); event.currentTarget.querySelector('[data-conversation-menu]')?.click(); }}><button className={`conversation-link ${c.id === activeId ? 'active' : ''}`} onClick={() => onSelectChat(c.id)} title={c.title}>{c.pinnedAt ? <Pin size={13} /> : <MessageSquare size={14} />}<span>{c.title}</span>{c.status === 'active' && <span className="working-dot" />}</button><ConversationActions conversation={c} onPatch={onPatch} disabled={!connected} /></div>;
+    return <div key={c.id} data-conversation-id={c.id} className={`conversation-row ${c.id === activeId ? 'selected' : ''}`} onContextMenu={event => { event.preventDefault(); event.currentTarget.querySelector('[data-conversation-menu]')?.click(); }}><button className={`conversation-link ${c.id === activeId ? 'active' : ''}`} aria-current={c.id === activeId ? 'page' : undefined} onClick={() => onSelectChat(c.id)} title={c.title}>{c.pinnedAt && !archived ? <Pin size={13} /> : <MessageSquare size={14} />}<span>{c.title}</span>{c.status === 'active' && <span className="working-dot" role="img" aria-label="任务正在运行" title="任务正在运行" />}</button><ConversationActions conversation={c} onPatch={onPatch} disabled={!connected} /></div>;
   }
-  return <><div className="sidebar-backdrop" onClick={onClose} /><aside className="sidebar">
-    <div className="brand-row"><div className="brand"><span className="brand-symbol">{mark}</span><span>Codex</span><span className="local-badge">本地</span></div><button className="icon-button" aria-label="收起侧栏" onClick={onClose}><PanelLeftClose size={17} /></button></div>
-    <div className="sidebar-actions"><button className="new-chat" aria-label="新建任务" title="新建任务 (Ctrl+N)" onClick={() => { setArchived(false); onNew(); }} disabled={creating || !ready}><MessageCirclePlus size={19} /><span>新建任务</span><kbd aria-hidden="true">Ctrl+N</kbd></button><button className="sidebar-history" onClick={onHistory}><History size={16} /><span>全部历史</span></button><button className="sidebar-search" onClick={() => setShowSearch(!showSearch)}><Search size={16} /><span>搜索对话</span></button></div>
-    {showSearch && <div className="search-field"><Search size={13} /><input autoFocus aria-label="搜索对话" value={search} onChange={event => setSearch(event.target.value)} placeholder="搜索当前工作区…" /><button aria-label="关闭搜索" onClick={() => { setShowSearch(false); setSearch(''); }}><X size={12} /></button></div>}
-    <div className="sidebar-section-label workspace-section-heading"><span>工作区</span><button className="icon-button" title="打开文件夹" aria-label="打开工作区文件夹" disabled={!connected} onClick={() => setPicker(true)}><Plus size={16} /></button></div>
-    <button className="project-row workspace-switcher" aria-label="选择工作区" aria-haspopup="menu" aria-expanded={!!workspaceMenu} disabled={!connected} title={workspace?.path} onClick={event => setWorkspaceMenu(workspaceMenu ? null : event.currentTarget.getBoundingClientRect())}><FolderOpen size={17} /><strong>{workspace?.name || '正在连接…'}</strong><ChevronDown size={14} /></button>
+  return <><div className="sidebar-backdrop" onClick={onClose} /><aside className="sidebar harness-sidebar" aria-label="工作区导航">
+    <div className="sidebar-workspace"><div className="sidebar-section-label workspace-section-heading"><span>当前工作区</span><div className="sidebar-workspace-actions"><button className="icon-button" title="打开文件夹" aria-label="打开工作区文件夹" disabled={!connected} onClick={() => setPicker(true)}><Plus size={16} /></button><button className="icon-button" aria-label="收起侧栏" title="收起侧栏" onClick={onClose}><PanelLeftClose size={17} /></button></div></div>
+    <button className="project-row workspace-switcher" aria-label="选择工作区" aria-haspopup="menu" aria-expanded={!!workspaceMenu} disabled={!connected} title={workspace?.path} onClick={event => setWorkspaceMenu(workspaceMenu ? null : event.currentTarget.getBoundingClientRect())}><FolderOpen size={17} /><strong>{workspace?.name || '正在连接…'}</strong><ChevronDown size={14} /></button></div>
     {workspaceMenu && <Popover anchor={workspaceMenu} label="选择工作区" onClose={() => setWorkspaceMenu(null)} className="workspace-list-menu"><div className="sidebar-menu-heading">工作区</div>{workspaces.map(w => <button role="menuitem" key={w.id} onClick={() => { setWorkspaceMenu(null); onSelectWorkspace(w.id); }}><Folder size={16} /><span><strong>{w.name}</strong><small>{w.path}</small></span>{w.id === workspace?.id && <Check size={15} />}</button>)}<div className="sidebar-menu-divider" /><button role="menuitem" onClick={() => { setWorkspaceMenu(null); setPicker(true); }}><Plus size={16} />打开文件夹…</button></Popover>}
+    <div className="sidebar-actions"><button className="new-chat" aria-label="新建任务" title={`新建任务 (${shortcutModifier}N)`} onClick={() => { setArchived(false); setSearch(''); setShowSearch(false); onNew(); }} disabled={creating || !ready}>{creating ? <LoaderCircle size={17} className="spin" /> : <MessageCirclePlus size={17} />}<span>新建任务</span><kbd aria-hidden="true">{shortcutModifier}N</kbd></button><button ref={searchTrigger} className="sidebar-search" aria-label="搜索对话" aria-expanded={showSearch} aria-controls="sidebar-search-panel" onClick={() => { if (showSearch) closeSearch(); else setShowSearch(true); }}><Search size={16} /><span>搜索对话</span><kbd aria-hidden="true">{shortcutModifier}K</kbd></button><button className="sidebar-history" onClick={onHistory}><History size={16} /><span>全部历史</span></button></div>
+    {showSearch && <div className="sidebar-search-panel" id="sidebar-search-panel"><div className="search-field"><Search size={14} /><input ref={searchInput} aria-label="搜索对话" value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeSearch(); } }} placeholder={archived ? '搜索已归档对话…' : '搜索当前工作区…'} />{search && <button aria-label="清空搜索" title="清空搜索" onClick={() => { setSearch(''); searchInput.current?.focus(); }}><X size={14} /></button>}</div><div className="sidebar-search-summary"><span role="status" aria-live="polite">{query ? `找到 ${visible.length} 条对话` : `${visible.length} 条${archived ? '归档' : ''}对话`}</span><button aria-label="关闭搜索" onClick={closeSearch}>收起 <kbd aria-hidden="true">Esc</kbd></button></div></div>}
     <nav className="conversation-list" aria-label="对话列表">
       {archived ? <div className="conversation-section-heading archive-heading"><button onClick={() => setArchived(false)} aria-label="返回最近对话"><ArrowLeft size={14} /></button><span>已归档</span><b>{archivedCount}</b></div> : <>{pinned.length > 0 && <div className="conversation-section-heading">已固定</div>}{pinned.map(row)}</>}
-      {!archived && <div className="conversation-section-heading">最近对话</div>}{recent.map(row)}
-      {!visible.length && <div className="conversation-empty">{search ? '没有找到相关对话' : archived ? '没有归档的对话' : '在这里开始新的对话'}</div>}
+      {groups.filter(group => group.items.length).map(group => <React.Fragment key={group.label}><div className="conversation-section-heading">{group.label}</div>{group.items.map(row)}</React.Fragment>)}
+      {!visible.length && <div className="conversation-empty"><MessageSquare size={21} aria-hidden="true" /><strong>{query ? '没有找到相关对话' : archived ? '没有归档的对话' : '在这里开始新的对话'}</strong><span>{query ? '换个关键词，或清空搜索查看全部对话。' : archived ? '归档后的对话会保存在这里。' : '新建任务后，对话会保存在当前工作区。'}</span>{query && <button onClick={() => { setSearch(''); searchInput.current?.focus(); }}>查看全部对话</button>}</div>}
     </nav>
     <div className="sidebar-bottom"><button className={`archive-entry ${archived ? 'selected' : ''}`} aria-label="查看已归档对话" aria-pressed={archived} onClick={() => { setArchived(!archived); setSearch(''); }}><Archive size={15} /><span>已归档</span>{archivedCount > 0 && <b>{archivedCount}</b>}</button><button className="usage-stats-entry" onClick={onUsageStats}><ChartNoAxesColumnIncreasing size={15} /><span>使用统计</span></button><div className="workspace-location"><Folder size={14} /><span title={workspace?.path}>{workspace?.path || '正在连接…'}</span></div><div className={`connection-info ${connected ? 'is-connected' : ''}`}><span className={connected ? 'connection-light' : 'connection-light offline'} /><span>{connected ? '局域网已连接' : '正在重新连接'}</span><span className="machine-label">此设备</span></div></div>
   </aside>{picker && <WorkspacePicker initialPath={workspace?.path} onClose={() => setPicker(false)} onSelect={onAddWorkspace} />}</>;

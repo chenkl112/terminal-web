@@ -13,9 +13,19 @@ export function conversationFileUrl(id, reference, image = false, download = fal
   return `/api/conversations/${encodeURIComponent(id)}/files?${params}`;
 }
 
+export function decodeFileReference(value) {
+  // Markdown renderers encode Chinese/space characters but can leave literal % intact.
+  try { return decodeURIComponent(value.replace(/%(?![a-f0-9]{2})/gi, '%25')); }
+  catch {
+    return value.replace(/(?:%[a-f0-9]{2})+/gi, encoded => {
+      try { return decodeURIComponent(encoded); } catch { return encoded; }
+    });
+  }
+}
+
 export function imageFileName(value) {
-  try { return decodeURIComponent(value.split(/[?#]/)[0].split('/').pop()) || '图片'; }
-  catch { return '图片'; }
+  const name = value.split(/[?#]/)[0].split('/').pop().replace(/:\d+(?::\d+)?$/, '');
+  return decodeFileReference(name) || '图片';
 }
 
 export function nativeImageSource(item, id) {

@@ -12,7 +12,7 @@ function diskName(name) {
   return value && value !== '.' && value !== '..' ? value : 'file';
 }
 
-export function uploadRouter({ uploadDir, uploads, save }) {
+export function uploadRouter({ uploadDir, uploads, save, touch = () => {} }) {
   const router = express.Router();
   const incoming = path.join(path.dirname(uploadDir), 'uploading');
   fs.mkdirSync(incoming, { recursive: true, mode: 0o700 });
@@ -48,6 +48,12 @@ export function uploadRouter({ uploadDir, uploads, save }) {
   });
 
   // The client reuses its ID when a response is lost. No file-size limit is applied.
+  router.post('/keepalive', (req, res) => {
+    const ids = req.body?.ids;
+    if (!Array.isArray(ids) || ids.length > 1000 || ids.some(id => typeof id !== 'string' || !validId(id))) return res.status(400).json({ error: '附件列表无效' });
+    touch(ids);
+    res.json({ ok: true, missing: ids.filter(id => !Object.hasOwn(uploads, id)) });
+  });
   router.post('/start', (req, res) => {
     const { id, name, size, type, kind, fileCount, directoryCount, parentId } = req.body || {};
     if (!validId(id) || typeof name !== 'string' || !name || !Number.isSafeInteger(size) || size < 0 || typeof type !== 'string') {
@@ -55,7 +61,7 @@ export function uploadRouter({ uploadDir, uploads, save }) {
     }
     if (kind === 'folder' && (![fileCount, directoryCount].every(value => Number.isSafeInteger(value) && value >= 0))) return res.status(400).json({ error: '文件夹信息无效' });
     if (parentId !== undefined && (kind === 'folder' || !validId(parentId) || read(parentId).kind !== 'folder')) return res.status(400).json({ error: '文件夹上传记录无效' });
-    if (uploads[id]) return res.json({ attachment: uploads[id], offset: uploads[id].size });
+    if (uploads[id]) { touch([id]); return res.json({ attachment: uploads[id], offset: uploads[id].size }); }
     if (busy.has(id)) return res.status(409).json({ error: '文件仍在保存，请稍后重试' });
     if (fs.existsSync(location(id))) {
       const meta = read(id);
@@ -72,7 +78,7 @@ export function uploadRouter({ uploadDir, uploads, save }) {
     res.status(201).json(status(read(id)));
   });
   router.get('/:id/status', (req, res) => {
-    if (uploads[req.params.id]) return res.json({ attachment: uploads[req.params.id], offset: uploads[req.params.id].size });
+    if (uploads[req.params.id]) { touch([req.params.id]); return res.json({ attachment: uploads[req.params.id], offset: uploads[req.params.id].size }); }
     if (busy.has(req.params.id)) return res.status(409).json({ error: '文件仍在保存，请稍后重试' });
     const meta = read(req.params.id);
     res.json(meta.completed ? { attachment: meta.completed, offset: meta.size } : status(meta));
@@ -210,11 +216,13 @@ export function uploadRouter({ uploadDir, uploads, save }) {
   router.get('/:id', (req, res) => {
     const value = uploads[req.params.id];
     if (!value) return res.status(404).end();
+    touch([req.params.id]);
     if (value.kind === 'folder') return res.json({ name: value.name, fileCount: value.fileCount,
       files: fs.readdirSync(value.path, { recursive: true }) });
     res.set('Content-Security-Policy', "default-src 'none'; sandbox");
-    if (value.image) res.type(value.type).sendFile(value.path);
-    else res.download(value.path, value.name);
+    // Managed payloads live under .data by default; Express otherwise hides them.
+    if (value.image) res.type(value.type).sendFile(value.path, { dotfiles: 'allow' });
+    else res.download(value.path, value.name, { dotfiles: 'allow' });
   });
   router.use((error, req, res, next) => {
     console.error('Upload failed', req.method, req.path, error.code || error.name, error.message);

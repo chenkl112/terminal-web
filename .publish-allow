@@ -1,0 +1,28 @@
+# Publication audit exceptions, scoped to the exact historical files below.
+# No current source file may reuse the historical machine-specific values.
+
+history:16ce7b3:.env.example:3
+history:57f8116:.env.example:3
+Reason: these already-published commits used the author's local workspace path.
+The current example now uses an optional generic path. Preserve existing Git
+history; this historical path is not a credential.
+
+history:16ce7b3:playwright.config.js:5
+history:57f8116:playwright.config.js:5
+Reason: these already-published commits used a private LAN test-server address.
+The current default is loopback and TEST_URL remains configurable. Preserve
+existing Git history; no password or access token accompanies that address.
+
+history:16ce7b3:author-email
+history:57f8116:author-email
+Reason: existing public commit metadata uses a personal mailbox. New commits
+use the repository owner's GitHub noreply address. Do not rewrite published
+history or introduce that mailbox into current source and documentation.
+
+README.md: repository and upstream-reference URLs
+Reason: the user requested publishing to the existing repository; the project
+URL and public DeepSeek Harness design references identify public source code.
+
+THIRD_PARTY_NOTICES.md and public/fonts/nunito-sans/OFL.txt
+Reason: upstream author names and public source links are required attribution
+for bundled interface assets and fonts, rather than private user identity.

@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Download, Image, LoaderCircle, Maximize2 } from 'lucide-react';
+import { Download, FileText, Image, LoaderCircle, Maximize2 } from 'lucide-react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { Modal } from './Sidebar.jsx';
-import { conversationFileUrl, imageFileName, isLocalFileReference, nativeImageSource } from '../shared/media.js';
+import { conversationFileUrl, decodeFileReference, imageFileName, isLocalFileReference, nativeImageSource } from '../shared/media.js';
 import './media.css';
 
 function ImageViewer({ image, onClose }) {
@@ -15,11 +15,38 @@ function ImageViewer({ image, onClose }) {
 
 export function MessageMarkdown({ text, conversation }) {
   const [preview, setPreview] = useState(null);
-  const html = useMemo(() => {
+  const [downloadError, setDownloadError] = useState(null);
+  useEffect(() => { setDownloadError(null); }, [text, conversation?.id]);
+  async function download(event) {
+    const link = event.target.closest?.('a[download]');
+    if (!link || !link.getAttribute('href')?.startsWith('/api/conversations/')) return;
+    event.preventDefault();
+    const url = link.getAttribute('href');
+    setDownloadError(null);
+    try {
+      // Let the browser stream large downloads; do not buffer the file in JS memory.
+      const response = await fetch(url, { method: 'HEAD' });
+      if (!response.ok) throw new Error(response.status === 401 ? '登录已过期，请重新登录后下载'
+        : response.status === 403 ? '无法读取此文件，或该文件未在当前对话中提供'
+        : response.status === 404 ? '文件不存在或已被移动'
+        : `下载服务暂时不可用（${response.status}）`);
+      const anchor = document.createElement('a'); anchor.href = url;
+      anchor.download = link.getAttribute('download') || ''; document.body.append(anchor);
+      anchor.click(); anchor.remove();
+    } catch (error) { setDownloadError(error instanceof TypeError ? '无法连接下载服务，请检查网络后重试' : error.message); }
+  }
+  const { html, files } = useMemo(() => {
+    const files = new Map();
     const template = document.createElement('template'); template.innerHTML = marked.parse(text || '', { breaks: true, gfm: true });
     for (const link of template.content.querySelectorAll('a[href]')) {
       const value = link.getAttribute('href');
-      if (conversation?.id && isLocalFileReference(value)) link.setAttribute('href', conversationFileUrl(conversation.id, value, false, true));
+      if (conversation?.id && isLocalFileReference(value)) {
+        const url = conversationFileUrl(conversation.id, value, false, true);
+        link.setAttribute('href', url); link.setAttribute('download', '');
+        const name = imageFileName(value);
+        const displayPath = decodeFileReference(value);
+        if (!/\.(png|jpe?g|webp|gif|avif|bmp)$/i.test(name) && !files.has(value)) files.set(value, { path: displayPath, name, url });
+      }
       if (link.getAttribute('target') === '_blank') link.setAttribute('rel', 'noopener noreferrer');
     }
     const originals = new Map();
@@ -44,9 +71,10 @@ export function MessageMarkdown({ text, conversation }) {
       if (img.parentElement?.tagName === 'A') img.parentElement.replaceWith(button); else img.replaceWith(button);
       button.appendChild(img);
     }
-    return template.innerHTML;
+    return { html: template.innerHTML, files: [...files.values()] };
   }, [text, conversation?.id]);
   function click(event) {
+    if (event.target.closest?.('a[download]')) { download(event); return; }
     const button = event.target.closest?.('[data-preview-src]');
     if (!button) return;
     event.preventDefault();
@@ -64,7 +92,7 @@ export function MessageMarkdown({ text, conversation }) {
     button.dataset.failed = '1'; img.style.display = 'none';
     const label = document.createElement('span'); label.className = 'image-load-error'; label.textContent = '图片暂时无法加载，点击重试'; button.appendChild(label);
   }
-  return <><div className="markdown" onClick={click} onErrorCapture={failed} dangerouslySetInnerHTML={{ __html: html }} />{preview && <ImageViewer image={preview} onClose={() => setPreview(null)} />}</>;
+  return <><div className="markdown" onClick={click} onErrorCapture={failed} dangerouslySetInnerHTML={{ __html: html }} />{files.length > 0 && <div className="generated-files" role="list" aria-label="可下载文件" onClick={download}>{files.map(file => <div key={file.path} className="generated-file" role="listitem"><FileText size={23} /><div><strong>{file.name}</strong><span title={file.path}>{file.path}</span></div><a href={file.url} download={file.name} aria-label={`下载文件：${file.name}`} title="保存到此设备"><Download size={16} /><span>下载</span></a></div>)}</div>}{downloadError && <div className="turn-error" role="alert">下载失败：{downloadError}</div>}{preview && <ImageViewer image={preview} onClose={() => setPreview(null)} />}</>;
 }
 
 export function NativeImage({ item, conversation }) {

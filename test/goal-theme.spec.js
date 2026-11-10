@@ -30,9 +30,9 @@ test('goal controls, complete execution folding and neutral dark backgrounds wor
   });
   await page.goto('/');
   await expect(page.getByRole('tab', { name: 'Codex', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('.main-panel')).toHaveCSS('background-color', 'rgb(22, 22, 22)');
-  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(43, 43, 43)');
-  await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(43, 43, 43)');
+  await expect(page.locator('.main-panel')).toHaveCSS('background-color', 'rgb(39, 44, 53)');
+  await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(32, 37, 46)');
+  await expect(page.locator('.composer')).toHaveCSS('background-color', 'rgb(52, 60, 73)');
   const group = page.locator('.execution-group'); await expect(group).toHaveCount(1); await expect(group).not.toHaveAttribute('open');
   await expect(group.locator(':scope>summary')).toContainText('4 项');
   await expect(page.getByText('中间执行日志', { exact: true })).not.toBeVisible();

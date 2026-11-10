@@ -23,3 +23,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## Nunito Sans
+
+The regular (400) and semibold (600) Nunito Sans fonts in
+`public/fonts/nunito-sans/` are distributed under the SIL Open Font License 1.1.
+
+Copyright 2016 The Nunito Sans Project Authors
+(https://github.com/Fonthausen/NunitoSans).
+
+Source: [Google Fonts](https://fonts.google.com/specimen/Nunito+Sans).
+The full license is included in [OFL.txt](public/fonts/nunito-sans/OFL.txt),
+copied from the [Google Fonts repository](https://github.com/google/fonts/blob/main/ofl/nunitosans/OFL.txt).
