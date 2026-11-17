@@ -1,7 +1,7 @@
 .sidebar .usage-stats-entry {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
   height: 36px;
   padding: 0 8px;
@@ -31,14 +31,14 @@
 
 .usage-stats-modal > header {
   flex-shrink: 0;
-  padding: 22px 24px 8px;
+  padding: 24px 24px 8px;
   margin: 0;
 }
 
 .usage-stats-modal > header h2 {
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: -.02em;
+  letter-spacing: 0;
 }
 
 .usage-stats-toolbar {
@@ -47,7 +47,7 @@
   align-items: center;
   gap: 16px;
   flex-shrink: 0;
-  padding: 0 24px 18px;
+  padding: 0 24px 16px;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--muted);
   font-size: 12px;
@@ -58,7 +58,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: 8px;
   height: 32px;
   padding: 0 12px;
   flex-shrink: 0;
@@ -67,7 +67,7 @@
   background: var(--surface-raised);
   color: var(--text-secondary);
   font-size: 12px;
-  transition: background .15s, color .15s;
+  transition: background 160ms var(--ease-ui), color 160ms var(--ease-ui);
 }
 
 .usage-stats-toolbar > button:hover:not(:disabled) {
@@ -86,7 +86,7 @@
   overflow: auto;
   min-height: 0;
   flex: 1;
-  padding: 22px 24px 28px;
+  padding: 24px;
   background: var(--surface-inset);
   overscroll-behavior: contain;
   scrollbar-width: thin;
@@ -96,8 +96,8 @@
 .usage-stat-summary-row {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  margin-bottom: 18px;
-  padding: 18px 6px;
+  margin-bottom: 16px;
+  padding: 20px 8px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-card);
   background: var(--surface-raised);
@@ -109,7 +109,7 @@
   align-content: center;
   gap: 8px;
   min-width: 0;
-  min-height: 62px;
+  min-height: 64px;
   padding: 0 12px;
   text-align: center;
 }
@@ -122,12 +122,12 @@
   font-weight: 500;
   line-height: 1.4;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -.03em;
+  letter-spacing: 0;
   color: var(--bright);
 }
 
 .usage-stat-summary > span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -157,8 +157,8 @@
 
 .usage-activity-panel > header > div {
   display: flex;
-  gap: 3px;
-  padding: 3px;
+  gap: 4px;
+  padding: 4px;
   border: 1px solid var(--border-subtle);
   border-radius: 10px;
   background: var(--surface-inset);
@@ -169,25 +169,25 @@
   min-width: 48px;
   padding: 0 10px;
   border: 1px solid transparent;
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--muted);
-  font-size: 11px;
-  transition: background .15s, color .15s;
+  font-size: 12px;
+  transition: background 160ms var(--ease-ui), color 160ms var(--ease-ui);
 }
 
 .usage-activity-panel > header button:hover { color: var(--bright); }
 
 .usage-activity-panel > header button[aria-pressed=true] {
-  border-color: var(--accent-border);
-  background: var(--accent-soft);
-  color: var(--accent);
+  border-color: var(--border-control);
+  background: var(--surface-hover);
+  color: var(--bright);
 }
 
 .usage-activity-grid {
   display: grid;
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, 11px);
-  grid-auto-columns: 11px;
+  grid-template-rows: repeat(7, 12px);
+  grid-auto-columns: 12px;
   gap: 4px;
   overflow-x: auto;
   padding: 1px 0 6px;
@@ -195,18 +195,18 @@
   scrollbar-color: var(--border-control) transparent;
 }
 
-.usage-activity-grid.mode-total { grid-template-rows: 11px; }
+.usage-activity-grid.mode-total { grid-template-rows: 12px; }
 
 .usage-activity-grid > span {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   border-radius: 3px;
   background: var(--surface);
 }
 
-.usage-activity-grid > .usage-activity-level-1 { background: #3d4b67; }
-.usage-activity-grid > .usage-activity-level-2 { background: #4e6898; }
-.usage-activity-grid > .usage-activity-level-3 { background: #6486c8; }
+.usage-activity-grid > .usage-activity-level-1 { background: #3b414c; }
+.usage-activity-grid > .usage-activity-level-2 { background: #505f79; }
+.usage-activity-grid > .usage-activity-level-3 { background: #6b86b0; }
 .usage-activity-grid > .usage-activity-level-4 { background: var(--accent); }
 
 .usage-activity-months {
@@ -215,15 +215,15 @@
   gap: 6px;
   margin-top: 8px;
   color: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .usage-trend-legend {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 14px;
-  font-size: 11px;
+  margin-top: 16px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -237,7 +237,7 @@
 .usage-trend-chart {
   display: block;
   width: 100%;
-  height: 188px;
+  height: 224px;
   overflow: visible;
   margin-top: 12px;
 }
@@ -269,9 +269,9 @@
   display: flex;
   justify-content: space-between;
   gap: 4px;
-  margin-top: 10px;
+  margin-top: 12px;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -313,7 +313,7 @@
 
 .usage-donut-unit {
   fill: var(--muted);
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 400;
 }
 
@@ -334,8 +334,8 @@
 .usage-model-legend > div > div {
   display: grid;
   grid-template-columns: 8px minmax(0, 1fr);
-  column-gap: 9px;
-  row-gap: 5px;
+  column-gap: 8px;
+  row-gap: 4px;
   min-width: 0;
 }
 
@@ -358,7 +358,7 @@
 .usage-model-legend small {
   grid-column: 2;
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
   font-variant-numeric: tabular-nums;
 }
 
@@ -375,7 +375,7 @@
 
 .usage-stats-footnote {
   margin: 4px 2px 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.8;
   color: var(--muted);
 }
@@ -388,46 +388,46 @@
     border-radius: 16px;
   }
 
-  .usage-stats-modal > header { padding: 18px 16px 8px; }
-  .usage-stats-toolbar { padding: 0 16px 16px; font-size: 11px; gap: 12px; }
+  .usage-stats-modal > header { padding: 20px 16px 8px; }
+  .usage-stats-toolbar { padding: 0 16px 16px; font-size: 12px; gap: 12px; }
   .usage-stats-toolbar > button { min-height: 36px; padding: 0 10px; }
-  .usage-stats-body { padding: 14px 12px 20px; }
+  .usage-stats-body { padding: 16px 12px 20px; }
 
   .usage-stat-summary-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     padding: 0 12px;
-    margin-bottom: 14px;
+    margin-bottom: 16px;
   }
 
-  .usage-stat-summary { min-height: 78px; padding: 12px 8px; gap: 5px; }
+  .usage-stat-summary { min-height: 80px; padding: 12px 8px; gap: 4px; }
   .usage-stat-summary:first-child { grid-column: 1 / -1; min-height: 92px; }
   .usage-stat-summary > strong { font-size: 20px; }
   .usage-stat-summary:first-child > strong { font-size: 28px; }
   .usage-stat-summary + .usage-stat-summary { border-left: 0; border-top: 1px solid var(--border-subtle); }
   .usage-stat-summary:nth-child(2n+3) { border-left: 1px solid var(--border-subtle); }
-  .usage-stat-panel { padding: 16px 13px; margin-bottom: 12px; }
+  .usage-stat-panel { padding: 16px; margin-bottom: 12px; }
   .usage-activity-panel > header { gap: 8px; margin-bottom: 16px; }
   .usage-activity-panel > header button { min-width: 42px; height: 32px; padding: 0 8px; }
-  .usage-activity-grid { grid-template-rows: repeat(7, 10px); grid-auto-columns: 10px; gap: 3px; }
+  .usage-activity-grid { grid-template-rows: repeat(7, 10px); grid-auto-columns: 10px; gap: 4px; }
   .usage-activity-grid > span { width: 10px; height: 10px; }
   .usage-activity-grid.mode-total { grid-template-rows: 10px; }
   .usage-trend-chart { height: 148px; }
-  .usage-trend-dates { font-size: 10px; }
+  .usage-trend-dates { font-size: 11px; }
   .usage-model-content { grid-template-columns: minmax(120px, 170px) minmax(0, 1fr); gap: 16px; min-height: 180px; }
   .usage-model-donut { width: 100%; }
-  .usage-model-legend { gap: 13px; }
+  .usage-model-legend { gap: 12px; }
   .usage-model-legend > div { gap: 8px; }
 }
 
 @media (max-width: 480px) {
-  .usage-model-content { grid-template-columns: 1fr; gap: 18px; padding: 8px 2px 2px; }
+  .usage-model-content { grid-template-columns: 1fr; gap: 20px; padding: 8px 2px 2px; }
   .usage-model-donut { width: 184px; }
   .usage-model-legend { width: 100%; }
 }
 
 @media (max-width: 360px) {
   .usage-stat-summary > strong { font-size: 18px; }
-  .usage-stat-panel { padding: 14px 10px; }
+  .usage-stat-panel { padding: 16px 12px; }
   .usage-activity-panel > header h3 { font-size: 13px; }
   .usage-activity-panel > header button { min-width: 38px; padding: 0 6px; }
 }

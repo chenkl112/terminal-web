@@ -26,3 +26,11 @@ URL and public DeepSeek Harness design references identify public source code.
 THIRD_PARTY_NOTICES.md and public/fonts/nunito-sans/OFL.txt
 Reason: upstream author names and public source links are required attribution
 for bundled interface assets and fonts, rather than private user identity.
+
+test/terminalDownloadLinks.test.js:43,47,64
+test/terminalDownloads.test.js:93
+history:bcc50b8:test/terminalDownloadLinks.test.js:43,47,64
+history:bcc50b8:test/terminalDownloads.test.js:93
+Reason: file-protocol URLs in these tests are synthetic fixtures for accepting
+local file references and rejecting remote hosts or invalid download paths.
+They do not identify an actual user's files, machine, or private documents.

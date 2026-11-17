@@ -284,7 +284,7 @@ test.describe('phone workspace', () => {
 
   test('welcome and conversation fit the screen, and selecting a search result closes the drawer', async ({ page, harness }) => {
     await newTask(page);
-    await expect(page.getByRole('heading', { name: '从一个想法开始', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '把任务交给 Codex', exact: true })).toBeVisible();
     await expect(composer(page)).toBeVisible();
     await noHorizontalOverflow(page);
     await page.screenshot({ path: '.data/harness-ui/mobile-welcome.png', animations: 'disabled' });

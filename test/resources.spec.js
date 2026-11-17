@@ -26,7 +26,7 @@ test('resource manager shows real measurements, switches four tabs, filters requ
   });
   try {
     await page.goto(`http://127.0.0.1:${server.address().port}`);
-    await expect(page.locator('.main-panel')).toHaveCSS('background-color', 'rgb(39, 44, 53)'); await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(32, 37, 46)');
+    await expect(page.locator('.main-panel')).toHaveCSS('background-color', 'rgb(27, 27, 30)'); await expect(page.locator('.sidebar')).toHaveCSS('background-color', 'rgb(20, 20, 22)');
     await expect.poll(() => metricsTimestamps.length).toBeGreaterThanOrEqual(3);
     for (let index = 1; index < 3; index++) expect(metricsTimestamps[index] - metricsTimestamps[index - 1]).toBeGreaterThanOrEqual(1000);
     await page.getByRole('button', { name: '资源管理器', exact: true }).click();

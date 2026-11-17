@@ -1,21 +1,21 @@
 /* Shared dialog controls follow the same palette as the workspace. */
-.workspace-modal-backdrop { background: #10172299; backdrop-filter: blur(5px); }
-.workspace-modal { background: var(--panel); border-color: var(--border-control); border-radius: 16px; color: var(--bright); font-family: var(--font-ui); font-weight: 400; box-shadow: 0 24px 80px #0005; }
-.workspace-modal h2 { color: var(--bright); font-size: 18px; font-weight: 600; letter-spacing: -.02em; }
+.workspace-modal-backdrop { background: #00000080; backdrop-filter: blur(5px); }
+.workspace-modal { background: var(--panel); border-color: var(--border-control); border-radius: 16px; color: var(--bright); font-family: var(--font-ui); font-weight: 400; box-shadow: none; }
+.workspace-modal h2 { color: var(--bright); font-size: 18px; font-weight: 600; letter-spacing: 0; }
 .workspace-modal > header > .icon-button { color: var(--muted); border-radius: 8px; }
 .workspace-modal > header > .icon-button:hover { background: var(--surface-hover); color: var(--bright); }
-.workspace-modal footer > button { min-height: 34px; padding: 8px 14px; border-radius: 8px; font-size: 13px; }
+.workspace-modal footer > button { min-height: 36px; padding: 8px 16px; border-radius: 8px; font-size: 13px; }
 .workspace-modal footer > button:not(.primary):not(.danger-action) { color: var(--text-secondary); }
 .workspace-modal footer > button:not(.primary):not(.danger-action):hover { background: var(--surface-hover); }
-.primary { background: #4f79e9 !important; color: #fff !important; border-color: transparent; }
-.primary:not(:disabled):hover { background: #6289f1 !important; }
-.primary:disabled:hover { background: #4f79e9 !important; }
+.primary { background: var(--bright) !important; color: #202023 !important; border-color: transparent; }
+.primary:not(:disabled):hover { background: #ffffff !important; }
+.primary:disabled:hover { background: var(--bright) !important; }
 .workspace-picker-caption, .rename-modal label, .goal-form label, .goal-form small,
 .command-description, .selector-footnote, .workspace-modal footer > span { color: var(--text-secondary); line-height: 1.7; }
 .rename-modal label, .goal-form label { font-size: 13px; }
 .rename-modal form > input, .command-rename > input, .goal-form input, .goal-form textarea,
 .question input, .history-search, .history-filters > select, .directory-path, .directory-list {
-  background: var(--surface-inset); border: 1px solid var(--border-control); border-radius: 9px; color: var(--bright);
+  background: var(--surface-inset); border: 1px solid var(--border-control); border-radius: 8px; color: var(--bright);
 }
 .rename-modal form > input:focus, .command-rename > input:focus, .goal-form input:focus,
 .goal-form textarea:focus, .question input:focus, .history-search:focus-within, .directory-path:focus-within { border-color: var(--accent-border); }
@@ -25,7 +25,7 @@
 .directory-options input { accent-color: var(--accent); }
 .directory-list > button { min-height: 40px; font-size: 13px; }
 .directory-list > button:hover, .history-row:hover { background: var(--accent-soft); }
-.directory-list > button > svg:first-child { color: var(--accent); }
+.directory-list > button > svg:first-child { color: var(--text-secondary); }
 .history-row { border-radius: 10px; }
 .history-row-content > strong { font-size: 14px; font-weight: 500; color: var(--bright); }
 .goal-details, .approval pre { background: var(--surface-inset); border-color: var(--border-subtle); border-radius: 10px; }
@@ -33,19 +33,19 @@
 .goal-budget-track > span { background: var(--accent); }
 .command-status dd { color: var(--bright); }
 .sidebar-popover, .selector-menu, .slash-menu, .add-menu, .usage-popover {
-  background: var(--surface-raised); background-image: none; border-color: var(--border-control); color: var(--bright); border-radius: 12px; box-shadow: 0 12px 40px #0004;
+  background: var(--surface-raised); background-image: none; border-color: var(--border-control); color: var(--bright); border-radius: 12px; box-shadow: none;
 }
 .sidebar-popover > button, .selector-option { color: var(--bright); font-weight: 400; }
 .selector-option strong { font-weight: 600; }
 .sidebar-popover > button:hover, .selector-option:hover, .slash-option:hover { background: var(--surface-hover); }
-.selector-option[aria-checked=true], .slash-option[aria-selected=true], .answer-options button.selected { background: var(--accent-soft); color: #d6e3ff; }
-.selector-option[aria-checked=true] > svg, .sidebar-popover > button > svg { color: var(--accent); }
+.selector-option[aria-checked=true], .slash-option[aria-selected=true], .answer-options button.selected { background: var(--accent-soft); color: var(--bright); }
+.selector-option[aria-checked=true] > svg, .sidebar-popover > button > svg { color: var(--text-secondary); }
 .selector-option small, .slash-description > small { color: var(--text-secondary); }
 .sidebar-menu-heading, .usage-row > span:first-child { color: var(--muted); }
 .sidebar-menu-divider { background: var(--border-control); }
 .selector-footnote { border-color: var(--border-control); }
 .approval { background: var(--surface-raised); border-color: var(--accent-border); border-radius: 12px; }
-.approval-title { color: #d6e3ff; }
+.approval-title { color: var(--bright); }
 .approval p, .question > label { color: var(--text-secondary); font-size: 13px; }
 .approval-actions > button, .answer-options button { border-color: var(--border-control); border-radius: 8px; font-size: 12px; }
 .answer-options button.selected { border-color: var(--accent-border); }
@@ -55,5 +55,5 @@
 @media (max-width: 760px) {
   .workspace-modal h2 { font-size: 17px; }
   .workspace-modal input:not([type=checkbox]), .workspace-modal textarea { font-size: 16px; }
-  .workspace-modal footer > button { min-height: 38px; }
+  .workspace-modal footer > button { min-height: 40px; }
 }

@@ -35,3 +35,13 @@ Copyright 2016 The Nunito Sans Project Authors
 Source: [Google Fonts](https://fonts.google.com/specimen/Nunito+Sans).
 The full license is included in [OFL.txt](public/fonts/nunito-sans/OFL.txt),
 copied from the [Google Fonts repository](https://github.com/google/fonts/blob/main/ofl/nunitosans/OFL.txt).
+
+## unslop
+
+The interface polish uses guidance adapted from **unslop** by
+Damir Sokolovsky ([@heydamir](https://x.com/heydamir)).
+Source: https://github.com/heydamir/unslop
+
+Licensed under [Creative Commons Attribution 4.0 International](https://creativecommons.org/licenses/by/4.0/).
+The guidance was adapted to the workspace's existing layout, rounded typography,
+graphite surfaces, control spacing, and task and usage displays.
